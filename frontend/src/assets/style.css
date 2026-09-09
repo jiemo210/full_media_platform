@@ -1,0 +1,138 @@
+/* 全媒体聚合平台 · iOS 天气风全局样式 */
+:root {
+  --bg-scene:
+    radial-gradient(1200px 600px at 85% -10%, rgba(100, 210, 255, 0.18), transparent 60%),
+    radial-gradient(900px 500px at -10% 30%, rgba(191, 90, 242, 0.16), transparent 55%),
+    linear-gradient(180deg, #22305c 0%, #182348 45%, #0d1428 75%, #070b17 100%);
+  --glass-bg: rgba(255, 255, 255, 0.10);
+  --glass-bg-soft: rgba(255, 255, 255, 0.07);
+  --glass-bg-strong: rgba(255, 255, 255, 0.16);
+  --glass-border: rgba(255, 255, 255, 0.22);
+  --glass-deep: rgba(13, 20, 40, 0.75);
+  --text-primary: #FFFFFF;
+  --text-secondary: rgba(255, 255, 255, 0.78);
+  --text-muted: rgba(255, 255, 255, 0.52);
+  --accent-blue: #64D2FF;
+  --accent-red: #FF9F0A;
+  --accent-green: #30D158;
+  --accent-purple: #BF5AF2;
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.45);
+  --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-serif: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'SF Mono', Consolas, monospace;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  line-height: 1.6;
+  min-height: 100vh;
+  background: var(--bg-scene);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent-blue); text-decoration: none; }
+.container { max-width: 1200px; margin: 0 auto; padding: 0 1.2rem; }
+.page-title { font-family: var(--font-serif); font-size: 1.7rem; margin-bottom: 0.4rem; }
+.page-desc { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1.2rem; }
+.section-label { font-size: 0.68rem; letter-spacing: 0.14em; color: var(--text-muted); font-family: var(--font-mono); }
+.card {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+}
+.btn {
+  padding: 8px 18px;
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  background: var(--glass-bg);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.82rem;
+  transition: var(--transition);
+}
+.btn:hover { background: var(--glass-bg-strong); }
+.btn.primary { background: var(--text-primary); color: #0b1020; font-weight: 600; border-color: var(--text-primary); }
+.btn.primary:disabled, .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn.accent { background: linear-gradient(135deg, #64D2FF, #BF5AF2); color: #0b1020; border: none; font-weight: 600; }
+.badge { font-size: 0.66rem; padding: 2px 9px; border-radius: 999px; }
+.badge-blue { background: rgba(100, 210, 255, 0.16); color: var(--accent-blue); border: 1px solid rgba(100, 210, 255, 0.35); }
+.badge-green { background: rgba(48, 209, 88, 0.16); color: var(--accent-green); border: 1px solid rgba(48, 209, 88, 0.35); }
+.badge-purple { background: rgba(191, 90, 242, 0.16); color: #D8A8FF; border: 1px solid rgba(191, 90, 242, 0.35); }
+.empty-tip { text-align: center; color: var(--text-muted); padding: 3rem 0; }
+.msg { margin-top: 0.8rem; font-size: 0.82rem; color: var(--accent-green); }
+.msg.err { color: #FF9B94; }
+input, select, textarea {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  outline: none;
+}
+input:focus, select:focus, textarea:focus { border-color: var(--accent-blue); }
+input::placeholder, textarea::placeholder { color: var(--text-muted); }
+
+/* 下拉框选项：默认系统白底，必须用深色文字，否则看不清 */
+select option {
+  color: #111827;
+  background: #ffffff;
+}
+
+/* ---------- 背景方案 ---------- */
+[data-bg="ocean"] {
+  --bg-scene:
+    radial-gradient(1000px 600px at 80% -10%, rgba(64, 156, 255, 0.22), transparent 60%),
+    linear-gradient(180deg, #0b2a4a 0%, #0a1f3a 45%, #061020 100%);
+}
+[data-bg="violet"] {
+  --bg-scene:
+    radial-gradient(1000px 600px at 85% -10%, rgba(191, 90, 242, 0.20), transparent 60%),
+    linear-gradient(180deg, #2b1a4d 0%, #1d1236 45%, #0b0819 100%);
+}
+[data-bg="paper"] {
+  --bg-scene:
+    radial-gradient(900px 500px at 85% -10%, rgba(100, 210, 255, 0.12), transparent 55%),
+    linear-gradient(180deg, #f2f4f8 0%, #e8ecf3 55%, #dfe4ee 100%);
+}
+
+/* ---------- 浅色模式 ---------- */
+[data-theme="light"] {
+  --text-primary: #1c1c1e;
+  --text-secondary: rgba(28, 28, 30, 0.76);
+  --text-muted: rgba(28, 28, 30, 0.52);
+  --glass-bg: rgba(255, 255, 255, 0.62);
+  --glass-bg-soft: rgba(255, 255, 255, 0.5);
+  --glass-bg-strong: rgba(255, 255, 255, 0.85);
+  --glass-border: rgba(28, 28, 30, 0.14);
+  --glass-deep: rgba(245, 247, 252, 0.82);
+}
+[data-theme="light"] .navbar {
+  background: rgba(240, 244, 250, 0.85);
+  border-bottom-color: rgba(28, 28, 30, 0.1);
+}
+[data-theme="light"] .btn.primary {
+  background: #1c1c1e;
+  color: #ffffff;
+  border-color: #1c1c1e;
+}
+[data-theme="light"] .btn.accent {
+  color: #ffffff;
+}
+[data-theme="light"] .rich-editor .editable,
+[data-theme="light"] .preview-area {
+  color: #1c1c1e;
+}
+[data-theme="light"] select option {
+  color: #1c1c1e;
+  background: #ffffff;
+}
