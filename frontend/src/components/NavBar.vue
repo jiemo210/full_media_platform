@@ -9,6 +9,7 @@
         <router-link to="/" class="nav-link" active-class="active">📰 热点新闻</router-link>
         <router-link to="/create" class="nav-link" active-class="active">✍️ AI创作</router-link>
         <router-link to="/search" class="nav-link" active-class="active">🔎 资料搜索</router-link>
+        <router-link to="/pipeline" class="nav-link" active-class="active">⚡ 成稿任务</router-link>
         <router-link to="/articles" class="nav-link" active-class="active">📚 文章库</router-link>
         <router-link to="/novels" class="nav-link" active-class="active">📖 小说</router-link>
         <router-link to="/publish" class="nav-link" active-class="active">🚀 发布</router-link>

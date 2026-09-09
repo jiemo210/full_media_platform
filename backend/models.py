@@ -139,3 +139,48 @@ class NovelChapter(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     project = relationship("NovelProject", back_populates="chapters")
+
+
+class PipelineRun(Base):
+    """一键成稿任务流"""
+    __tablename__ = "pipeline_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    source_type = Column(String(20), default="rewrite")   # rewrite / create
+    news_id = Column(Integer, nullable=True, index=True)
+    topic = Column(String(300), default="")
+    mode = Column(String(10), default="auto")             # auto / step（step 预留）
+    config = Column(JSON, default={})                     # 风格/字数/平台/模型/风控开关/修订轮数/发布平台
+    status = Column(String(20), default="queued", index=True)  # queued/running/completed/failed/cancelled
+    current_stage = Column(String(30), default="")
+    worker_id = Column(String(64), default="")
+    ai_calls = Column(Integer, default=0)
+    article_id = Column(Integer, nullable=True)
+    error = Column(String(500), default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    finished_at = Column(DateTime, nullable=True)
+
+    artifacts = relationship(
+        "PipelineStageArtifact", back_populates="run",
+        cascade="all, delete-orphan",
+        order_by="PipelineStageArtifact.order_no",
+    )
+
+
+class PipelineStageArtifact(Base):
+    """任务流阶段产物"""
+    __tablename__ = "pipeline_stage_artifacts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    run_id = Column(Integer, ForeignKey("pipeline_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    stage = Column(String(30), nullable=False)            # material/draft/risk/revise/risk_final/finalize
+    order_no = Column(Integer, default=0)
+    title = Column(String(300), default="")
+    content_md = Column(Text().with_variant(LONGTEXT, "mysql"), default="")
+    meta = Column(JSON, default={})
+    status = Column(String(20), default="running")        # running/done/failed/skipped
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    run = relationship("PipelineRun", back_populates="artifacts")

@@ -26,7 +26,7 @@ from models import User
 from auth_utils import hash_password, verify_password
 from deps import get_token_payload
 from config import get_ai_models, get_platforms, get_write_styles
-from routers import admin, article, auth, media, news, novel, publish, search
+from routers import admin, article, auth, media, news, novel, pipeline, publish, search
 from migrations import ensure_migrations
 
 logger = get_logger(__name__)
@@ -88,6 +88,11 @@ async def lifespan(app: FastAPI):
         logger.info(f"AI 服务已配置（模型: {cfg_get('AI_MODEL')}）")
     else:
         logger.warning("AI 服务未配置（.env 设置 FMP_AI_API_KEY）")
+    # 一键成稿：恢复中断任务并启动 Worker
+    from pipeline_service import ensure_worker_started, recover_interrupted
+    recover_interrupted()
+    ensure_worker_started()
+    logger.info("一键成稿任务 Worker 已就绪")
     logger.info("全媒体聚合平台后端启动完成")
     yield
 
@@ -124,6 +129,7 @@ app.include_router(admin.router)
 app.include_router(media.router)
 app.include_router(novel.router)
 app.include_router(search.router)
+app.include_router(pipeline.router)
 
 # 本地素材静态访问
 _media_dir = cfg_get("MEDIA_DIR", "./media")

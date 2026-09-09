@@ -46,6 +46,7 @@
               <div class="news-footer">
                 <span class="news-time">🕐 首次抓取 {{ formatTime(n.created_at) }}</span>
                 <span class="news-rewrite">✍️ 点击 AI 改写</span>
+                <button class="pipeline-btn" @click.stop="goPipeline(n)">⚡ 一键成稿</button>
               </div>
             </div>
           </div>
@@ -76,8 +77,11 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { crawlNews, getCrawlStatus, getNews, getPublicConfig, getSources, getTopNews } from '../api'
 import NewsPreview from './NewsPreview.vue'
+
+const router = useRouter()
 
 const newsList = ref([])
 const topNews = ref([])
@@ -95,6 +99,10 @@ const crawling = ref(false)
 const crawlMsg = ref('')
 const crawlErr = ref(false)
 const selectedNews = ref(null)
+
+function goPipeline(n) {
+  router.push({ path: '/pipeline', query: { news_id: n.id, title: n.title } })
+}
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 const formatTime = (v) => v ? new Date(v).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''
@@ -179,6 +187,8 @@ onMounted(async () => {
 .news-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
 .news-time { font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono); }
 .news-rewrite { font-size: 0.74rem; color: var(--accent-blue); }
+.pipeline-btn { padding: 3px 11px; border: 1px solid rgba(100, 210, 255, 0.45); border-radius: 999px; background: rgba(100, 210, 255, 0.1); color: var(--accent-blue); font-size: 0.72rem; cursor: pointer; }
+.pipeline-btn:hover { background: rgba(100, 210, 255, 0.2); }
 .top-panel { padding: 16px; align-self: start; position: sticky; top: 76px; }
 .top-title { font-size: 1rem; margin-bottom: 10px; font-family: var(--font-serif); }
 .top-item { display: flex; align-items: center; gap: 10px; padding: 8px 6px; border-radius: 8px; cursor: pointer; font-size: 0.8rem; }

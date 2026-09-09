@@ -153,6 +153,20 @@ class MaterialSearchRequest(BaseModel):
     days: int = 0  # 时间范围（天）：0=不限，>0 表示仅最近 N 天
 
 
+class PipelineRunCreate(BaseModel):
+    """一键成稿任务创建请求"""
+    source_type: str = "rewrite"          # rewrite（热点改写）/ create（自由创作）
+    news_id: Optional[int] = None
+    topic: str = ""
+    style: str = "专业深度"
+    word_count: int = 800
+    platform: str = ""
+    model: str = ""
+    mode: str = "auto"                    # auto / step（step 预留）
+    auto_fix: bool = True                 # 风控高风险时自动按建议修订
+    publish_platforms: List[str] = []     # 完成后自动创建发布任务的平台
+
+
 class AIModelItem(BaseModel):
     key: str
     name: str

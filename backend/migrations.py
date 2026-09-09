@@ -77,6 +77,14 @@ def m_news_fulltext(conn):
         logger.warning(f"[migration] FULLTEXT 索引创建失败（回退 LIKE 搜索）: {e}")
 
 
+def m_pipeline_tables(conn):
+    """一键成稿任务表：由启动时 create_all 负责建表，此处仅校验并记录版本。"""
+    for table in ("pipeline_runs", "pipeline_stage_artifacts"):
+        cols = _columns(conn, table)
+        if not cols:
+            logger.warning(f"[migration] {table} 不存在（create_all 未执行？）")
+
+
 MIGRATIONS = [
     {
         "id": "m001_longtext_fields",
@@ -91,6 +99,7 @@ MIGRATIONS = [
     {"id": "m002_news_title_hash", "fn": m_news_title_hash},
     {"id": "m003_users_must_change_password", "fn": m_users_must_change_password},
     {"id": "m004_news_fulltext", "fn": m_news_fulltext, "best_effort": True},
+    {"id": "m005_pipeline_tables", "fn": m_pipeline_tables},
 ]
 
 

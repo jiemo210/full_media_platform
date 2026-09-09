@@ -37,7 +37,7 @@ export const getCrawlStatus = () => request('/news/crawl/status')
 
 const STREAM_IDLE_TIMEOUT = 120000 // 120s 无数据视为超时
 
-async function _readStream(res, handler, controller, onError) {
+async function _readStream(res, handler, controller, onError, options = {}) {
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buf = ''
@@ -70,11 +70,29 @@ async function _readStream(res, handler, controller, onError) {
     }
     clearInterval(idleTimer)
     // 流正常关闭但没有收到 done 事件 = 服务端中断
-    if (!finished) onError?.(new Error('生成中断：连接提前关闭，请重试'))
+    if (!finished && !options.eventStream) onError?.(new Error('生成中断：连接提前关闭，请重试'))
   } catch (err) {
     clearInterval(idleTimer)
     if (err.name !== 'AbortError') onError?.(err)
   }
+}
+
+function _getStream(url, handler, onError) {
+  const controller = new AbortController()
+  const token = localStorage.getItem('fmp_token') || ''
+  const headers = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  fetch(`${BASE_URL}${url}`, { headers, signal: controller.signal })
+    .then(async (res) => {
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        onError?.(new Error(err.detail || `API Error: ${res.status}`))
+        return
+      }
+      await _readStream(res, handler, controller, onError, { eventStream: true })
+    })
+    .catch((err) => { if (err.name !== 'AbortError') onError?.(err) })
+  return controller
 }
 
 function _postStream(url, data, handler, onError) {
@@ -137,6 +155,21 @@ export function riskReviseStream(data, onToken, onDone, onError) {
 
 // 资料搜索
 export const searchMaterials = (query, days = 0) => request('/search/materials', { method: 'POST', body: JSON.stringify({ query, days }) })
+
+// 一键成稿任务流
+export const pipelineAPI = {
+  create: (data) => request('/pipeline/runs', { method: 'POST', body: JSON.stringify(data) }),
+  list: (params = {}) => {
+    const clean = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== ''))
+    return request(`/pipeline/runs?${new URLSearchParams(clean)}`)
+  },
+  get: (id, content = 0) => request(`/pipeline/runs/${id}?content=${content}`),
+  cancel: (id) => request(`/pipeline/runs/${id}/cancel`, { method: 'POST' }),
+  retry: (id) => request(`/pipeline/runs/${id}/retry`, { method: 'POST' }),
+}
+export function pipelineEvents(id, onEvent, onError) {
+  return _getStream(`/pipeline/runs/${id}/events`, (ev) => onEvent?.(ev), onError)
+}
 
 // 发布
 export const getPlatforms = () => request('/publish/platforms')
