@@ -28,11 +28,12 @@
             <button class="btn" @click="copyPackage(t)">📋 复制</button>
             <button class="btn" @click="exportPdf(t.title, t.content)">📄 导出 PDF</button>
             <button class="btn primary" v-if="t.status === 'pending'" @click="publish(t)">🚀 发布跳转</button>
-            <button class="btn accent" v-if="t.status === 'jumped'" @click="confirm(t)">✅ 确认已发布</button>
-            <button class="btn del" @click="remove(t)">🗑 删除</button>
+            <button class="btn accent" v-if="t.status === 'jumped'" @click="askConfirm('publish', t)">✅ 确认已发布</button>
+            <button class="btn del" @click="askConfirm('delete', t)">🗑 删除</button>
           </div>
         </div>
         <p v-if="!tasks.length && loaded" class="empty-tip">暂无发布任务</p>
+        <Pager :page="page" :total="total" :page-size="pageSize" @change="load" />
       </div>
       <p v-if="msg" class="msg" :class="{ err: msg.startsWith('❌') }">{{ msg }}</p>
     </div>
@@ -90,6 +91,27 @@
         </div>
       </div>
     </div>
+
+    <!-- 统一风格确认弹窗 -->
+    <div v-if="pendingConfirm" class="overlay" @click.self="pendingConfirm = null">
+      <div class="modal confirm-modal card">
+        <h3>{{ pendingConfirm.kind === 'publish' ? '确认发布' : '删除确认' }}</h3>
+        <p class="confirm-text">
+          {{ pendingConfirm.kind === 'publish'
+            ? '确认已在「' + pendingConfirm.task.platform + '」完成发布？'
+            : '确认删除该发布任务？' }}
+        </p>
+        <div class="modal-actions">
+          <button class="btn" @click="pendingConfirm = null">取消</button>
+          <button
+            class="btn"
+            :class="pendingConfirm.kind === 'delete' ? 'del' : 'primary'"
+            @click="runConfirm"
+            :disabled="confirming"
+          >{{ confirming ? '处理中...' : (pendingConfirm.kind === 'delete' ? '删除' : '确认发布') }}</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -99,8 +121,12 @@ import { confirmPublishTask, deletePublishTask, getPlatforms, getPublishTasks, p
 import { toast } from '../toast'
 import { copyRichHtml, exportPdf, mdToHtml } from '../utils'
 import RichEditor from './RichEditor.vue'
+import Pager from './Pager.vue'
 
 const tasks = ref([])
+const page = ref(1)
+const pageSize = 10
+const total = ref(0)
 const statusFilter = ref('')
 const loaded = ref(false)
 const msg = ref('')
@@ -111,13 +137,17 @@ const editForm = ref({ platform: '', title: '', content: '' })
 const editMsg = ref('')
 const savingEdit = ref(false)
 const publishFallback = ref(null)
+const pendingConfirm = ref(null)
+const confirming = ref(false)
 
 const plainText = (md) => (md || '').replace(/[#>*`\-\[\]()]/g, '').replace(/\n+/g, ' ').trim()
 
 async function load(p = 1) {
+  page.value = p
   try {
-    const res = await getPublishTasks({ page: p, page_size: 50, status: statusFilter.value || undefined })
+    const res = await getPublishTasks({ page: page.value, page_size: pageSize, status: statusFilter.value || undefined })
     tasks.value = res.items
+    total.value = res.total
     loaded.value = true
   } catch (e) { msg.value = `❌ ${e.message}` }
 }
@@ -176,19 +206,6 @@ async function publish(t) {
   }
 }
 
-async function confirm(t) {
-  if (!confirm(`确认已在「${t.platform}」完成发布？`)) return
-  try {
-    await confirmPublishTask(t.id)
-    toast('✅ 已确认发布', 'success')
-    msg.value = `✅ 「${t.platform}」已标记为已发布`
-    load()
-  } catch (e) {
-    msg.value = `❌ ${e.message}`
-    toast(`❌ ${e.message || '确认失败'}`, 'error')
-  }
-}
-
 function openInNewTab(url) {
   try {
     const win = window.open(url, '_blank', 'noopener')
@@ -206,9 +223,32 @@ function openInNewTab(url) {
   }
 }
 
-async function remove(t) {
-  if (!confirm(`确认删除发布任务「${t.title.slice(0, 30)}」？`)) return
-  try { await deletePublishTask(t.id); msg.value = '✅ 发布任务已删除'; load() } catch (e) { msg.value = `❌ ${e.message}` }
+function askConfirm(kind, t) {
+  pendingConfirm.value = { kind, task: t }
+}
+
+async function runConfirm() {
+  const c = pendingConfirm.value
+  if (!c || confirming.value) return
+  confirming.value = true
+  try {
+    if (c.kind === 'delete') {
+      await deletePublishTask(c.task.id)
+      msg.value = '✅ 发布任务已删除'
+      toast('🗑 发布任务已删除', 'success')
+    } else {
+      await confirmPublishTask(c.task.id)
+      msg.value = `✅ 「${c.task.platform}」已标记为已发布`
+      toast('✅ 已确认发布', 'success')
+    }
+    pendingConfirm.value = null
+    load()
+  } catch (e) {
+    msg.value = `❌ ${e.message}`
+    toast(`❌ ${e.message || '操作失败'}`, 'error')
+  } finally {
+    confirming.value = false
+  }
 }
 
 onMounted(async () => {
@@ -234,8 +274,10 @@ onMounted(async () => {
 .ext-link { font-size: 0.78rem; }
 .overlay { position: fixed; inset: 0; z-index: 1200; background: rgba(5, 8, 18, 0.68); display: flex; align-items: center; justify-content: center; padding: 1rem; }
 .modal { width: 560px; max-width: 94vw; max-height: 88vh; overflow-y: auto; padding: 1.3rem; }
+.confirm-modal { width: 380px; }
 .edit-modal { width: 880px; max-width: 96vw; }
 .preview-modal { width: 680px; }
+.confirm-text { margin: 0.5rem 0 0.2rem; color: var(--text-secondary); font-size: 0.9rem; line-height: 1.6; }
 .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem; }
 .modal-head h3 { font-family: var(--font-serif); }
 .close { background: none; border: none; color: var(--text-muted); font-size: 1.4rem; cursor: pointer; line-height: 1; }

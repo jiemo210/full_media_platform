@@ -148,18 +148,19 @@ def _stage_draft(db, run: PipelineRun, art: PipelineStageArtifact, material_text
     word_count = int(cfg.get("word_count") or 800)
     platform = cfg.get("platform") or ""
     model = cfg.get("model") or ""
+    extra_prompt = cfg.get("extra_prompt") or ""
     if run.source_type == "rewrite":
         news = db.query(News).filter(News.id == run.news_id).first()
         if not news:
             raise PipelineError("新闻不存在或已删除")
         result = generate_rewrite(
             news.title, news.summary or "", material_text or news.summary or news.title,
-            style, "", platform, model, word_count,
+            style, extra_prompt, platform, model, word_count,
         )
     else:
         if not run.topic.strip():
             raise PipelineError("创作主题不能为空")
-        result = generate_create(run.topic, style, word_count, "", platform, model)
+        result = generate_create(run.topic, style, word_count, extra_prompt, platform, model)
     art.title = (result.get("title") or "").strip()
     art.content_md = (result.get("content") or "").strip()
     art.meta["style"] = style

@@ -21,6 +21,7 @@
         </tr>
       </tbody>
     </table>
+    <Pager :page="page" :total="total" :page-size="pageSize" @change="load" />
     <p v-if="msg" class="msg" :class="{ err: msg.startsWith('❌') }">{{ msg }}</p>
 
     <div v-if="form.show" class="overlay" @click.self="form.show = false">
@@ -44,16 +45,25 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { adminCreateUser, adminDeleteUser, adminGetUsers, adminUpdateUser } from '../api'
+import Pager from './Pager.vue'
 
 const users = ref([])
+const page = ref(1)
+const pageSize = 20
+const total = ref(0)
 const msg = ref('')
 const saving = ref(false)
 const form = ref({ show: false, id: null, username: '', nickname: '', role: 'viewer', password: '' })
 
 const roleClass = (r) => ({ admin: 'badge-blue', editor: 'badge-purple', viewer: 'badge-green' }[r] || '')
 
-async function load() {
-  try { users.value = (await adminGetUsers()).users } catch (e) { msg.value = `❌ ${e.message}` }
+async function load(p = 1) {
+  page.value = p
+  try {
+    const res = await adminGetUsers({ page: page.value, page_size: pageSize })
+    users.value = res.users
+    total.value = res.total
+  } catch (e) { msg.value = `❌ ${e.message}` }
 }
 
 function openCreate() {

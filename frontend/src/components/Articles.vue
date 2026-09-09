@@ -25,6 +25,7 @@
           </div>
         </div>
         <p v-if="!articles.length && loaded" class="empty-tip">暂无文章，去「热点新闻」AI 改写或「AI 创作」生成</p>
+        <Pager :page="page" :total="total" :page-size="pageSize" @change="load" />
       </div>
     </div>
 
@@ -69,10 +70,14 @@
 import { ref, onMounted } from 'vue'
 import { createPublishTasks, deleteArticle, getArticles, getPlatforms, updateArticle } from '../api'
 import RichEditor from './RichEditor.vue'
+import Pager from './Pager.vue'
 import { toast } from '../toast'
 import { copyRichHtml, exportPdf } from '../utils'
 
 const articles = ref([])
+const page = ref(1)
+const pageSize = 12
+const total = ref(0)
 const loaded = ref(false)
 const editing = ref(null)
 const editTitle = ref('')
@@ -88,10 +93,12 @@ const pubError = ref('')
 const formatTime = (v) => v ? new Date(v).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''
 const plainText = (md) => (md || '').replace(/[#>*`\-\[\]()]/g, '').replace(/\n+/g, ' ')
 
-async function load() {
+async function load(p = 1) {
+  page.value = p
   try {
-    const res = await getArticles({ page_size: 50 })
+    const res = await getArticles({ page: page.value, page_size: pageSize })
     articles.value = res.items
+    total.value = res.total
     loaded.value = true
   } catch (e) {}
 }

@@ -47,9 +47,7 @@
                 <span class="news-time">🕐 首次抓取 {{ formatTime(n.created_at) }}</span>
                 <div class="news-actions">
                   <button class="mini-btn" @click.stop="openRewrite(n)">✍️ AI 改写</button>
-                  <button class="mini-btn mini-primary" @click.stop="goPipeline(n)" :disabled="quickTaskNewsId === n.id">
-                    {{ quickTaskNewsId === n.id ? '生成中...' : '⚡ 一键成稿' }}
-                  </button>
+                  <button class="mini-btn mini-primary" @click.stop="openPipelineModal(n)">⚡ 一键成稿</button>
                 </div>
               </div>
             </div>
@@ -74,15 +72,14 @@
     </div>
 
     <Teleport to="body">
-      <NewsPreview v-if="selectedNews" :news="selectedNews" @close="selectedNews = null" />
+      <NewsPreview v-if="selectedNews" :news="selectedNews" :action="selectedAction" @close="selectedNews = null" />
     </Teleport>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { crawlNews, getCrawlStatus, getNews, getPublicConfig, getSources, getTopNews, pipelineAPI } from '../api'
-import { toast } from '../toast'
+import { crawlNews, getCrawlStatus, getNews, getPublicConfig, getSources, getTopNews } from '../api'
 import NewsPreview from './NewsPreview.vue'
 
 
@@ -102,29 +99,16 @@ const crawling = ref(false)
 const crawlMsg = ref('')
 const crawlErr = ref(false)
 const selectedNews = ref(null)
-const quickTaskNewsId = ref(null)
+const selectedAction = ref('rewrite')
 
 function openRewrite(n) {
+  selectedAction.value = 'rewrite'
   selectedNews.value = n
 }
 
-async function goPipeline(n) {
-  if (quickTaskNewsId.value) return
-  quickTaskNewsId.value = n.id
-  try {
-    const run = await pipelineAPI.create({
-      source_type: 'rewrite',
-      news_id: n.id,
-      style: '专业深度',
-      word_count: 800,
-      auto_fix: true,
-    })
-    toast(`⚡ 已后台创建成稿任务 #${run.id}`, 'success', { label: '查看任务', to: '/pipeline' })
-  } catch (e) {
-    toast(`❌ ${e.message || '任务创建失败'}`, 'error')
-  } finally {
-    quickTaskNewsId.value = null
-  }
+function openPipelineModal(n) {
+  selectedAction.value = 'pipeline'
+  selectedNews.value = n
 }
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
@@ -223,8 +207,28 @@ onMounted(async () => {
 .top-rank.top3 { color: var(--accent-red); font-weight: 700; }
 .top-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pager { display: flex; justify-content: center; align-items: center; gap: 14px; margin-top: 1.4rem; font-size: 0.82rem; }
+.preview-overlay { position: fixed; inset: 0; z-index: 1100; background: rgba(5, 8, 18, 0.68); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; padding: 1rem; }
+.preview-panel { width: 860px; max-width: 96vw; max-height: 92vh; overflow-y: auto; background: var(--glass-deep); border: 1px solid var(--glass-border); border-radius: 24px; box-shadow: var(--shadow-lg); padding: 1.3rem 1.5rem; }
+.preview-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem; }
+.preview-title { font-family: var(--font-serif); font-size: 1.15rem; }
+.close-btn { background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer; line-height: 1; }
+.rewrite-form { display: flex; flex-direction: column; gap: 10px; }
+.form-row { display: flex; gap: 14px; }
+.form-row label { display: flex; flex-direction: column; gap: 5px; font-size: 0.76rem; color: var(--text-muted); flex: 1; min-width: 0; }
+.full-label { display: flex; flex-direction: column; gap: 5px; font-size: 0.76rem; color: var(--text-muted); }
+.full-label textarea { width: 100%; resize: vertical; }
+.check-row { display: flex; align-items: center; font-size: 0.82rem; }
+.check-row label { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); }
+.check-row input { accent-color: var(--accent-blue); }
+.suggestions-box { display: flex; flex-direction: column; gap: 6px; }
+.suggestions-box .btn { align-self: flex-start; }
+.suggestion-item { display: flex; align-items: flex-start; gap: 8px; padding: 7px 10px; border: 1px solid var(--glass-border); border-radius: 10px; font-size: 0.78rem; color: var(--text-secondary); cursor: pointer; }
+.suggestion-item.on { border-color: var(--accent-blue); background: rgba(100, 210, 255, 0.12); }
+.suggestion-item input { accent-color: var(--accent-blue); margin-top: 2px; }
+.preview-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
 @media (max-width: 900px) {
   .home-layout { grid-template-columns: 1fr; }
   .top-panel { position: static; }
+  .form-row { flex-direction: column; }
 }
 </style>

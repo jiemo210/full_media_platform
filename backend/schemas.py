@@ -162,6 +162,7 @@ class PipelineRunCreate(BaseModel):
     word_count: int = 800
     platform: str = ""
     model: str = ""
+    extra_prompt: str = ""                 # 补充提示词（含勾选的改写建议）
     mode: str = "auto"                    # auto / step（step 预留）
     auto_fix: bool = True                 # 风控高风险时自动按建议修订
     publish_platforms: List[str] = []     # 完成后自动创建发布任务的平台

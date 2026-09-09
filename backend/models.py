@@ -149,7 +149,7 @@ class PipelineRun(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     source_type = Column(String(20), default="rewrite")   # rewrite / create
     news_id = Column(Integer, nullable=True, index=True)
-    topic = Column(String(300), default="")
+    topic = Column(Text().with_variant(LONGTEXT, "mysql"), default="")
     mode = Column(String(10), default="auto")             # auto / step（step 预留）
     config = Column(JSON, default={})                     # 风格/字数/平台/模型/风控开关/修订轮数/发布平台
     status = Column(String(20), default="queued", index=True)  # queued/running/completed/failed/cancelled

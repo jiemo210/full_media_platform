@@ -22,6 +22,7 @@
       </div>
     </div>
     <p v-if="!assets.length && loaded" class="empty-tip">素材库为空，点击右上角上传图片</p>
+    <Pager :page="page" :total="total" :page-size="pageSize" @change="load" />
     <p v-if="msg" class="msg" :class="{ err: msg.startsWith('❌') }">{{ msg }}</p>
   </div>
 </template>
@@ -29,17 +30,21 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { deleteMediaAsset, getMediaAssets, uploadImage } from '../api'
+import Pager from './Pager.vue'
 
 const assets = ref([])
+const page = ref(1)
+const pageSize = 30
 const total = ref(0)
 const loaded = ref(false)
 const uploading = ref(false)
 const msg = ref('')
 const formatTime = (v) => new Date(v).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
-async function load() {
+async function load(p = 1) {
+  page.value = p
   try {
-    const res = await getMediaAssets({ page_size: 200 })
+    const res = await getMediaAssets({ page: page.value, page_size: pageSize })
     assets.value = res.items
     total.value = res.total
     loaded.value = true

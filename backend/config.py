@@ -199,9 +199,10 @@ def update_platforms(platforms: list) -> list:
     return platforms
 
 
-def get_platform(key: str) -> dict:
+def get_platform(key_or_label: str) -> dict:
+    """按平台 key 或显示名称查找（发布任务中保存的是名称）。"""
     for p in get_platforms():
-        if p.get("key") == key:
+        if p.get("key") == key_or_label or p.get("label") == key_or_label:
             return p
     return {}
 

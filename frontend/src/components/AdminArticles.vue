@@ -16,6 +16,7 @@
         <tr v-if="!articles.length"><td colspan="7" class="empty-cell">暂无文章</td></tr>
       </tbody>
     </table>
+    <Pager :page="page" :total="total" :page-size="pageSize" @change="load" />
     <p v-if="msg" class="msg" :class="{ err: msg.startsWith('❌') }">{{ msg }}</p>
   </div>
 </template>
@@ -23,13 +24,22 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { deleteArticle, getArticles } from '../api'
+import Pager from './Pager.vue'
 
 const articles = ref([])
+const page = ref(1)
+const pageSize = 20
+const total = ref(0)
 const msg = ref('')
 const formatTime = (v) => v ? new Date(v).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''
 
-async function load() {
-  try { articles.value = (await getArticles({ page_size: 100 })).items } catch (e) { msg.value = `❌ ${e.message}` }
+async function load(p = 1) {
+  page.value = p
+  try {
+    const res = await getArticles({ page: page.value, page_size: pageSize })
+    articles.value = res.items
+    total.value = res.total
+  } catch (e) { msg.value = `❌ ${e.message}` }
 }
 async function remove(a) {
   if (!confirm(`确认删除「${a.title.slice(0, 30)}」？`)) return

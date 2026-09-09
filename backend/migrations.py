@@ -85,6 +85,12 @@ def m_pipeline_tables(conn):
             logger.warning(f"[migration] {table} 不存在（create_all 未执行？）")
 
 
+def m_pipeline_topic_longtext(conn):
+    """pipeline_runs.topic 扩容（支持整段素材/长主题输入）。"""
+    if _IS_MYSQL and "topic" in _columns(conn, "pipeline_runs"):
+        conn.execute(text("ALTER TABLE pipeline_runs MODIFY COLUMN topic LONGTEXT NULL"))
+
+
 MIGRATIONS = [
     {
         "id": "m001_longtext_fields",
@@ -100,6 +106,7 @@ MIGRATIONS = [
     {"id": "m003_users_must_change_password", "fn": m_users_must_change_password},
     {"id": "m004_news_fulltext", "fn": m_news_fulltext, "best_effort": True},
     {"id": "m005_pipeline_tables", "fn": m_pipeline_tables},
+    {"id": "m006_pipeline_topic_longtext", "fn": m_pipeline_topic_longtext},
 ]
 
 

@@ -65,12 +65,21 @@ def source_health(user: dict = Depends(require_admin)):
 # ============ 用户管理 ============
 
 @router.get("/users")
-def list_users(user: dict = Depends(require_admin), db: Session = Depends(get_db)):
-    users = db.query(User).order_by(User.id).all()
-    return {"users": [
-        {"id": u.id, "username": u.username, "role": u.role, "nickname": u.nickname or "", "is_active": u.is_active, "created_at": u.created_at}
-        for u in users
-    ]}
+def list_users(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    total = db.query(User).count()
+    users = db.query(User).order_by(User.id).offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "users": [
+            {"id": u.id, "username": u.username, "role": u.role, "nickname": u.nickname or "", "is_active": u.is_active, "created_at": u.created_at}
+            for u in users
+        ],
+        "total": total, "page": page, "page_size": page_size,
+    }
 
 
 @router.post("/users")

@@ -54,6 +54,8 @@ def create_run(req: PipelineRunCreate, user: dict = Depends(require_editor), db:
     else:
         if not req.topic.strip():
             raise HTTPException(status_code=400, detail="创作主题不能为空")
+        if len(req.topic) > 20000:
+            raise HTTPException(status_code=400, detail="创作主题过长（最多 20000 字），请精简或改走素材改写")
     if req.mode != "auto":
         raise HTTPException(status_code=400, detail="当前版本仅支持自动模式（mode=auto）")
     word_count = max(200, min(int(req.word_count or 800), 10000))
@@ -70,6 +72,7 @@ def create_run(req: PipelineRunCreate, user: dict = Depends(require_editor), db:
             "word_count": word_count,
             "platform": (req.platform or "").strip(),
             "model": (req.model or "").strip(),
+            "extra_prompt": (req.extra_prompt or "").strip()[:2000],
             "auto_fix": bool(req.auto_fix),
             "publish_platforms": publish_platforms,
         },
@@ -134,6 +137,16 @@ def run_events(run_id: int, request: Request, user: dict = Depends(get_token_pay
         cursor = since
         last_activity = time.time()
         try:
+            # 任务已结束时，先发一个快照并立即断开，避免客户端反复重连
+            sdb = SessionLocal()
+            try:
+                cur = sdb.query(PipelineRun).filter(PipelineRun.id == run_id).first()
+                cur_status = cur.status if cur else "completed"
+            finally:
+                sdb.close()
+            if cur_status in _TERMINAL:
+                yield f"data: {json.dumps({'type': 'run_status', 'payload': {'status': cur_status}}, ensure_ascii=False)}\n\n"
+                return
             while True:
                 for ev in events_after(run_id, cursor):
                     cursor = ev["seq"]

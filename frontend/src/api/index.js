@@ -190,7 +190,10 @@ export const saveSources = (sources) => request('/admin/sources', { method: 'PUT
 export const checkSourcesHealth = () => request('/admin/sources/health', { method: 'POST' })
 
 // 后台管理
-export const adminGetUsers = () => request('/admin/users')
+export const adminGetUsers = (params = {}) => {
+  const clean = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== ''))
+  return request(`/admin/users?${new URLSearchParams(clean)}`)
+}
 export const adminCreateUser = (data) => request('/admin/users', { method: 'POST', body: JSON.stringify(data) })
 export const adminUpdateUser = (id, data) => request(`/admin/users/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const adminDeleteUser = (id) => request(`/admin/users/${id}`, { method: 'DELETE' })

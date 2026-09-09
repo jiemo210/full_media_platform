@@ -55,7 +55,7 @@
             </label>
           </div>
           <button class="btn primary generate-btn" @click="generate" :disabled="generating">
-            {{ generating ? 'AI 生成中...' : '✨ 生成 AI 改写文章' }}
+            {{ generating ? 'AI 生成中...' : action === 'pipeline' ? '🚀 创建并后台生成' : '✨ 生成 AI 改写文章' }}
           </button>
           <p v-if="error" class="msg err">{{ error }}</p>
         </div>
@@ -124,13 +124,13 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { createPublishTasks, getPlatforms, getPublicConfig, getRewriteSuggestions, getWriteStyles, rewriteStream, riskCheck, riskReviseStream, saveArticle } from '../api'
+import { createPublishTasks, getPlatforms, getPublicConfig, getRewriteSuggestions, getWriteStyles, pipelineAPI, rewriteStream, riskCheck, riskReviseStream, saveArticle } from '../api'
 import RichEditor from './RichEditor.vue'
 import { copyRichHtml, exportPdf, splitTitle } from '../utils'
 import { toast } from '../toast'
 
-const props = defineProps({ news: Object })
-defineEmits(['close'])
+const props = defineProps({ news: Object, action: { type: String, default: 'rewrite' } })
+const emit = defineEmits(['close'])
 
 const styles = ref([])
 const models = ref([])
@@ -163,6 +163,10 @@ function generate() {
   error.value = ''
   risk.value = null
   riskMsg.value = ''
+  if (props.action === 'pipeline') {
+    createPipelineTask()
+    return
+  }
   generating.value = true
   streamText.value = ''
   rewriteStream(
@@ -179,6 +183,30 @@ function generate() {
     },
     (err) => { error.value = err.message; generating.value = false },
   )
+}
+
+async function createPipelineTask() {
+  generating.value = true
+  error.value = ''
+  try {
+    const run = await pipelineAPI.create({
+      source_type: 'rewrite',
+      news_id: props.news.id,
+      style: form.value.style,
+      word_count: form.value.word_count || 800,
+      platform: form.value.platform,
+      model: form.value.model,
+      extra_prompt: form.value.extra_prompt,
+      auto_fix: true,
+    })
+    toast(`⚡ 已后台创建成稿任务 #${run.id}`, 'success', { label: '查看任务', to: '/pipeline' })
+    emit('close')
+  } catch (e) {
+    error.value = e.message || '任务创建失败'
+    toast(`❌ ${error.value}`, 'error')
+  } finally {
+    generating.value = false
+  }
 }
 
 async function checkRisk() {
