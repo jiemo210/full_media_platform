@@ -10,11 +10,13 @@ from config import get as cfg_get
 from rate_limit import check_limit, record_hit
 from database import get_db
 from deps import get_token_payload, require_editor
+from logger import get_logger
 from models import Article, PublishTask
 from publish_service import confirm_publish, create_tasks, generate_package, mock_publish
 from schemas import PublishRequest, PublishTaskBase, PublishTaskListResponse, PublishTaskUpdate
 
 router = APIRouter(prefix="/api/publish", tags=["发布"])
+logger = get_logger(__name__)
 
 
 def _to_base(t: PublishTask) -> PublishTaskBase:
@@ -139,6 +141,11 @@ def delete_task(task_id: int, user: dict = Depends(require_editor), db: Session 
     task = db.query(PublishTask).filter(PublishTask.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
-    db.delete(task)
-    db.commit()
+    try:
+        db.delete(task)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.warning(f"[publish] 删除任务 {task_id} 失败: {e}")
+        raise HTTPException(status_code=500, detail=f"删除失败：{str(e)[:200]}")
     return {"message": "发布任务已删除"}

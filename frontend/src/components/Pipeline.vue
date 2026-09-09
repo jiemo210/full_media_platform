@@ -62,30 +62,47 @@
           </div>
         </div>
         <div v-if="selected.error" class="err-text">❌ {{ selected.error }}</div>
-        <div class="timeline">
-          <div v-for="a in selected.artifacts" :key="a.id" class="tl-item" :class="a.status">
-            <span class="tl-icon">{{ a.status === 'done' ? '✅' : a.status === 'running' ? '⏳' : a.status === 'failed' ? '❌' : '⏭' }}</span>
-            <div class="tl-body">
-              <div class="tl-line">
-                <strong>{{ a.stage_label }}</strong>
-                <span v-if="a.status === 'done'" class="muted">（{{ a.word_count }} 字）</span>
-              </div>
-              <div v-if="a.title" class="tl-title">{{ a.title }}</div>
-              <div v-if="a.meta?.level && a.stage === 'risk'" class="risk-tag" :class="a.meta.level">
-                风控：{{ a.meta.level === 'low' ? '低风险' : a.meta.level === 'medium' ? '中风险' : a.meta.level === 'high' ? '高风险' : '—' }}
-                <span v-if="a.meta.issues?.length" class="muted">（{{ a.meta.issues.length }} 个风险点）</span>
+        <div class="stage-list">
+          <div v-for="a in selected.artifacts" :key="a.id" class="stage-card" :class="a.status" @click="toggleStage(a.id)">
+            <div class="stage-head">
+              <span class="st-icon">{{ a.status === 'done' ? '✅' : a.status === 'running' ? '⏳' : a.status === 'failed' ? '❌' : '⏭' }}</span>
+              <strong class="st-label">{{ a.stage_label }}</strong>
+              <span class="st-status" :class="a.status">{{ stageStatusText(a.status) }}</span>
+              <span class="st-meta">
+                <template v-if="a.status === 'done'">
+                  {{ a.word_count }} 字 · 完成于 {{ formatTime(a.updated_at) }}
+                </template>
+                <template v-else-if="a.status === 'running'">执行中…</template>
+              </span>
+              <span class="st-chev">{{ expandedIds.has(a.id) ? '▴' : '▾' }}</span>
+            </div>
+            <div v-if="expandedIds.has(a.id)" class="stage-body">
+              <div v-if="a.title" class="st-title">{{ a.title }}</div>
+              <div v-if="a.stage === 'risk' && a.meta?.level" class="risk-block" :class="a.meta.level">
+                <p class="risk-line">
+                  风控：{{ riskLevelText(a.meta.level) }}
+                  <span v-if="a.meta.pass !== undefined" class="muted">（{{ a.meta.pass ? '通过' : '未通过' }}）</span>
+                </p>
+                <ul v-if="a.meta.issues?.length" class="risk-ul">
+                  <li v-for="(i, idx) in a.meta.issues" :key="idx">⚠️ {{ i }}</li>
+                </ul>
+                <p v-if="a.meta.suggestions?.length" class="sugg-line">💡 建议：{{ a.meta.suggestions.join('；') }}</p>
               </div>
               <div v-if="a.meta?.fixed" class="fixed-tag">✏️ 已按风控建议自动修订</div>
+              <div v-if="a.meta?.article_id" class="meta-line">📄 已入库文章 ID：{{ a.meta.article_id }}</div>
+              <div v-if="a.meta?.url" class="meta-line">
+                来源：<a :href="a.meta.url" target="_blank" rel="noopener">{{ a.meta.source_name || a.meta.url }}</a>
+              </div>
+              <pre v-if="a.content_md" class="st-content">{{ a.content_md }}</pre>
+              <p v-else-if="a.status === 'done'" class="muted">（本阶段无正文内容）</p>
             </div>
           </div>
+          <p v-if="!selected.artifacts?.length" class="muted">任务尚未产生阶段产物，等待 Worker 执行…</p>
         </div>
         <div v-if="selected.status === 'completed'" class="done-actions">
           <span class="done-tip">✅ 已入库<template v-if="selected.article_id">（文章 ID {{ selected.article_id }}）</template></span>
           <button class="btn primary small" @click="$router.push('/articles')">📚 前往文章库</button>
           <button class="btn accent small" @click="$router.push({ path: '/publish' })">🚀 前往发布</button>
-        </div>
-        <div v-if="liveLog.length" class="live-log">
-          <div v-for="(l, i) in liveLog" :key="i" class="log-line" :class="l.cls">{{ l.text }}</div>
         </div>
       </div>
     </div>
@@ -93,15 +110,10 @@
     <!-- 新建任务 -->
     <div v-if="showCreate" class="overlay" @click.self="showCreate = false">
       <div class="modal card">
-        <h3>⚡ 新建成稿任务</h3>
-        <div class="seg">
-          <button :class="{ on: form.source_type === 'rewrite' }" @click="form.source_type = 'rewrite'">📰 热点改写</button>
-          <button :class="{ on: form.source_type === 'create' }" @click="form.source_type = 'create'">✍️ 自由创作</button>
-        </div>
-        <label v-if="form.source_type === 'create'" class="field">创作主题 *
+        <h3>⚡ 新建成稿任务（自由创作）</h3>
+        <label class="field">创作主题 *
           <input v-model="form.topic" placeholder="如：新能源汽车出口最新动态分析" />
         </label>
-        <p v-else class="news-tip">📰 将改写新闻：{{ preselectTitle || '（将自动抓取热点原文）' }}</p>
         <div class="grid2">
           <label class="field">写作风格
             <select v-model="form.style">
@@ -143,12 +155,9 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
 import { getPlatforms, getPublicConfig, pipelineAPI, pipelineEvents } from '../api'
 import { toast } from '../toast'
 
-const route = useRoute()
-const router = useRouter()
 const runs = ref([])
 const selected = ref(null)
 const statusFilter = ref('')
@@ -163,16 +172,18 @@ const platforms = ref([])
 const showCreate = ref(false)
 const creating = ref(false)
 const createError = ref('')
-const preselectNewsId = ref(null)
-const preselectTitle = ref('')
-const form = ref({ source_type: 'create', topic: '', style: '专业深度', word_count: 800, platform: '', model: '', auto_fix: true })
-const liveLog = ref([])
+const form = ref({ topic: '', style: '专业深度', word_count: 800, platform: '', model: '', auto_fix: true })
 const eventController = ref(null)
+const expandedIds = ref(new Set())
+let terminalHandled = false
 
 const STATUS_TEXT = { queued: '排队中', running: '执行中', completed: '已完成', failed: '失败', cancelled: '已取消' }
+const STAGE_STATUS_TEXT = { running: '执行中', done: '已完成', failed: '失败', skipped: '已跳过' }
 const statusText = (s) => STATUS_TEXT[s] || s
+const stageStatusText = (s) => STAGE_STATUS_TEXT[s] || s
+const riskLevelText = (l) => l === 'low' ? '低风险' : l === 'medium' ? '中风险' : l === 'high' ? '高风险' : (l === 'skipped' ? '未执行' : l || '—')
 const formatTime = (v) => v ? new Date(v).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''
-const canCreate = computed(() => form.value.source_type === 'rewrite' ? !!preselectNewsId.value : !!form.value.topic.trim())
+const canCreate = computed(() => !!form.value.topic.trim())
 
 async function load() {
   try {
@@ -185,7 +196,7 @@ async function load() {
 
 function selectRun(r) {
   selected.value = { ...r }
-  liveLog.value = []
+  terminalHandled = false
   loadDetail(true)
 }
 
@@ -202,12 +213,9 @@ function subscribe(id) {
   eventController.value = pipelineEvents(
     id,
     (ev) => {
-      if (ev.type === 'stage_start') pushLog(`开始：${ev.payload?.label || ev.payload?.stage}`, '')
-      else if (ev.type === 'stage_done') pushLog(`完成：${ev.payload?.label || ev.payload?.stage}`, 'ok')
-      else if (ev.type === 'stage_skip') pushLog(`跳过：${ev.payload?.label || ev.payload?.stage}`, '')
-      else if (ev.type === 'run_status' && ev.payload?.status) {
-        pushLog(`状态：${statusText(ev.payload.status)}${ev.payload.error ? ' · ' + ev.payload.error : ''}`, ev.payload.status === 'failed' ? 'err' : ev.payload.status === 'completed' ? 'ok' : '')
-        if (['completed', 'failed', 'cancelled'].includes(ev.payload.status)) {
+      if (ev.type === 'run_status' && ev.payload?.status && ['completed', 'failed', 'cancelled'].includes(ev.payload.status)) {
+        if (!terminalHandled) {
+          terminalHandled = true
           loadDetail(false)
           load()
         }
@@ -217,9 +225,11 @@ function subscribe(id) {
   )
 }
 
-function pushLog(text, cls) {
-  liveLog.value.push({ text, cls })
-  if (liveLog.value.length > 50) liveLog.value.shift()
+function toggleStage(id) {
+  const set = new Set(expandedIds.value)
+  if (set.has(id)) set.delete(id)
+  else set.add(id)
+  expandedIds.value = set
 }
 
 function openCreate() {
@@ -233,8 +243,7 @@ async function create() {
   createError.value = ''
   try {
     const payload = {
-      source_type: form.value.source_type,
-      news_id: form.value.source_type === 'rewrite' ? preselectNewsId.value : undefined,
+      source_type: 'create',
       topic: form.value.topic.trim(),
       style: form.value.style,
       word_count: form.value.word_count,
@@ -260,12 +269,6 @@ async function cancel(r) {
 }
 
 onMounted(async () => {
-  const qNewsId = Number(route.query.news_id)
-  if (qNewsId) {
-    preselectNewsId.value = qNewsId
-    preselectTitle.value = String(route.query.title || '')
-    form.value.source_type = 'rewrite'
-  }
   try {
     const [tpls, cfg] = await Promise.all([getPlatforms(), getPublicConfig().catch(() => null)])
     platforms.value = tpls
@@ -274,9 +277,6 @@ onMounted(async () => {
     if (models.value.length) form.value.model = models.value[0].key
   } catch (e) {}
   await load()
-  if (qNewsId) {
-    showCreate.value = true
-  }
 })
 
 onUnmounted(() => { try { eventController.value?.abort() } catch (e) {} })
@@ -304,29 +304,41 @@ onUnmounted(() => { try { eventController.value?.abort() } catch (e) {} })
 .detail { margin-top: 1rem; padding: 1.1rem 1.2rem; }
 .detail-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem; flex-wrap: wrap; gap: 8px; }
 .detail-head h3 { font-family: var(--font-serif); }
-.timeline { display: flex; flex-direction: column; gap: 6px; }
-.tl-item { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; }
-.tl-icon { width: 22px; text-align: center; }
-.tl-body { flex: 1; }
-.tl-title { font-size: 0.84rem; color: var(--text-secondary); }
 .muted { color: var(--text-muted); font-size: 0.76rem; }
-.risk-tag { font-size: 0.76rem; margin-top: 2px; }
-.risk-tag.high { color: #FF9B94; }
-.risk-tag.medium { color: #FFD60A; }
-.risk-tag.low { color: var(--accent-green); }
+.stage-list { display: flex; flex-direction: column; gap: 8px; margin-top: 0.4rem; }
+.stage-card { border: 1px solid var(--glass-border); border-radius: 10px; overflow: hidden; background: var(--glass-bg-soft); }
+.stage-card.running { border-color: rgba(100, 210, 255, 0.5); }
+.stage-card.failed { border-color: rgba(255, 69, 58, 0.55); }
+.stage-head { display: flex; align-items: center; gap: 10px; padding: 9px 12px; cursor: pointer; }
+.st-icon { width: 20px; text-align: center; }
+.st-label { font-size: 0.86rem; }
+.st-status { font-size: 0.7rem; padding: 1px 9px; border-radius: 999px; background: var(--glass-bg); }
+.st-status.done { color: var(--accent-green); }
+.st-status.running { color: var(--accent-blue); }
+.st-status.failed { color: #FF9B94; }
+.st-status.skipped { color: var(--text-muted); }
+.st-meta { margin-left: auto; font-size: 0.72rem; color: var(--text-muted); }
+.st-chev { color: var(--text-muted); font-size: 0.72rem; }
+.stage-body { padding: 4px 12px 12px 42px; border-top: 1px dashed var(--glass-border); }
+.st-title { font-size: 0.9rem; font-weight: 600; margin: 8px 0 4px; }
+.risk-block { margin-top: 6px; padding: 8px 10px; border-radius: 8px; background: rgba(255, 159, 10, 0.08); }
+.risk-block.high { background: rgba(255, 69, 58, 0.1); }
+.risk-block.low { background: rgba(48, 209, 88, 0.08); }
+.risk-line { font-size: 0.78rem; color: #FFD60A; }
+.risk-block.high .risk-line { color: #FF9B94; }
+.risk-block.low .risk-line { color: var(--accent-green); }
+.risk-ul { margin: 4px 0 0; padding-left: 16px; font-size: 0.76rem; color: var(--text-secondary); }
+.risk-ul li { margin: 2px 0; }
+.sugg-line { margin: 4px 0 0; font-size: 0.76rem; color: var(--accent-green); }
 .fixed-tag { font-size: 0.76rem; color: var(--accent-green); margin-top: 2px; }
+.meta-line { margin-top: 4px; font-size: 0.76rem; color: var(--text-secondary); }
+.meta-line a { color: var(--accent-blue); }
+.st-content { margin-top: 8px; padding: 10px; background: rgba(5, 8, 18, 0.45); border-radius: 8px; font-size: 0.78rem; line-height: 1.7; white-space: pre-wrap; word-break: break-word; max-height: 360px; overflow-y: auto; }
 .done-actions { margin-top: 1rem; display: flex; gap: 10px; align-items: center; }
 .done-tip { color: var(--accent-green); font-size: 0.84rem; }
-.live-log { margin-top: 1rem; border-top: 1px solid var(--glass-border); padding-top: 8px; font-family: var(--font-mono); font-size: 0.74rem; }
-.log-line.ok { color: var(--accent-green); }
-.log-line.err { color: #FF9B94; }
 .overlay { position: fixed; inset: 0; z-index: 1300; background: rgba(5, 8, 18, 0.68); display: flex; align-items: center; justify-content: center; padding: 1rem; }
 .modal { width: 560px; max-width: 94vw; max-height: 90vh; overflow-y: auto; padding: 1.3rem; }
 .modal h3 { margin-bottom: 0.8rem; font-family: var(--font-serif); }
-.seg { display: flex; gap: 8px; margin-bottom: 12px; }
-.seg button { flex: 1; padding: 8px; border: 1px solid var(--glass-border); border-radius: 10px; background: var(--glass-bg-soft); color: var(--text-secondary); cursor: pointer; font-size: 0.84rem; }
-.seg button.on { border-color: var(--accent-blue); color: var(--accent-blue); background: rgba(100, 210, 255, 0.12); }
-.news-tip { font-size: 0.82rem; color: var(--accent-blue); background: rgba(100, 210, 255, 0.08); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
 .field { display: flex; flex-direction: column; gap: 6px; font-size: 0.78rem; color: var(--text-muted); margin-bottom: 10px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .check-row { display: flex; align-items: center; justify-content: space-between; font-size: 0.82rem; margin: 6px 0 8px; }

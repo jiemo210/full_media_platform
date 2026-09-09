@@ -45,8 +45,12 @@
               <p class="news-summary">{{ n.summary }}</p>
               <div class="news-footer">
                 <span class="news-time">🕐 首次抓取 {{ formatTime(n.created_at) }}</span>
-                <span class="news-rewrite">✍️ 点击 AI 改写</span>
-                <button class="pipeline-btn" @click.stop="goPipeline(n)">⚡ 一键成稿</button>
+                <div class="news-actions">
+                  <button class="mini-btn" @click.stop="openRewrite(n)">✍️ AI 改写</button>
+                  <button class="mini-btn mini-primary" @click.stop="goPipeline(n)" :disabled="quickTaskNewsId === n.id">
+                    {{ quickTaskNewsId === n.id ? '生成中...' : '⚡ 一键成稿' }}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -77,11 +81,10 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { crawlNews, getCrawlStatus, getNews, getPublicConfig, getSources, getTopNews } from '../api'
+import { crawlNews, getCrawlStatus, getNews, getPublicConfig, getSources, getTopNews, pipelineAPI } from '../api'
+import { toast } from '../toast'
 import NewsPreview from './NewsPreview.vue'
 
-const router = useRouter()
 
 const newsList = ref([])
 const topNews = ref([])
@@ -99,9 +102,29 @@ const crawling = ref(false)
 const crawlMsg = ref('')
 const crawlErr = ref(false)
 const selectedNews = ref(null)
+const quickTaskNewsId = ref(null)
 
-function goPipeline(n) {
-  router.push({ path: '/pipeline', query: { news_id: n.id, title: n.title } })
+function openRewrite(n) {
+  selectedNews.value = n
+}
+
+async function goPipeline(n) {
+  if (quickTaskNewsId.value) return
+  quickTaskNewsId.value = n.id
+  try {
+    const run = await pipelineAPI.create({
+      source_type: 'rewrite',
+      news_id: n.id,
+      style: '专业深度',
+      word_count: 800,
+      auto_fix: true,
+    })
+    toast(`⚡ 已后台创建成稿任务 #${run.id}`, 'success', { label: '查看任务', to: '/pipeline' })
+  } catch (e) {
+    toast(`❌ ${e.message || '任务创建失败'}`, 'error')
+  } finally {
+    quickTaskNewsId.value = null
+  }
 }
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
@@ -186,9 +209,12 @@ onMounted(async () => {
 .news-summary { font-size: 0.82rem; color: var(--text-secondary); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .news-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
 .news-time { font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono); }
-.news-rewrite { font-size: 0.74rem; color: var(--accent-blue); }
-.pipeline-btn { padding: 3px 11px; border: 1px solid rgba(100, 210, 255, 0.45); border-radius: 999px; background: rgba(100, 210, 255, 0.1); color: var(--accent-blue); font-size: 0.72rem; cursor: pointer; }
-.pipeline-btn:hover { background: rgba(100, 210, 255, 0.2); }
+.news-actions { display: flex; gap: 8px; }
+.mini-btn { padding: 4px 12px; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--glass-bg); color: var(--text-secondary); font-size: 0.74rem; cursor: pointer; white-space: nowrap; }
+.mini-btn:hover { color: var(--text-primary); border-color: var(--text-muted); }
+.mini-btn.mini-primary { border-color: rgba(100, 210, 255, 0.45); color: var(--accent-blue); background: rgba(100, 210, 255, 0.1); }
+.mini-btn.mini-primary:hover { background: rgba(100, 210, 255, 0.2); }
+.mini-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 .top-panel { padding: 16px; align-self: start; position: sticky; top: 76px; }
 .top-title { font-size: 1rem; margin-bottom: 10px; font-family: var(--font-serif); }
 .top-item { display: flex; align-items: center; gap: 10px; padding: 8px 6px; border-radius: 8px; cursor: pointer; font-size: 0.8rem; }
