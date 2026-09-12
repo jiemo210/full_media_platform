@@ -7,6 +7,7 @@
 import json
 import re
 import threading
+import time
 from datetime import datetime
 
 from database import SessionLocal
@@ -20,6 +21,7 @@ logger = get_logger(__name__)
 STAGE_LABELS = {
     "material": "素材收集",
     "draft": "AI 成文",
+    "images": "智能配图",
     "risk": "风控检查",
     "revise": "AI 修订",
     "finalize": "入库定稿",
@@ -33,6 +35,26 @@ _worker = None
 
 class PipelineError(Exception):
     """任务级可预期错误（展示给用户）。"""
+
+
+def _char_count(text: str) -> int:
+    return len((text or "").replace("\n", "").replace(" ", "").replace("\t", ""))
+
+
+def planned_stages(run: PipelineRun) -> list:
+    """任务计划阶段（与执行器保持一致），用于列表进度展示。"""
+    cfg = run.config or {}
+    stages = []
+    if run.source_type == "rewrite":
+        stages.append("material")
+    stages.append("draft")
+    if run.source_type == "rewrite" and cfg_get("PIPELINE_IMAGE_ENABLED", True):
+        stages.append("images")
+    stages.append("risk")
+    if cfg.get("auto_fix", True):
+        stages.append("revise")
+    stages.append("finalize")
+    return stages
 
 
 # ---------------- 事件总线 ----------------
@@ -129,6 +151,7 @@ def _stage_material(db, run: PipelineRun, art: PipelineStageArtifact):
     text = (fetched.get("text") or news.summary or news.title or "").strip()
     if not text:
         raise PipelineError("未获取到原文内容")
+    images = _localize_images(db, run, fetched.get("images") or [], news.url or "")
     art.title = news.title or ""
     art.content_md = text
     art.meta = {
@@ -137,11 +160,133 @@ def _stage_material(db, run: PipelineRun, art: PipelineStageArtifact):
         "category": news.category or "",
         "heat_score": news.heat_score or 0,
         "fetched": True,
+        "images": images,
+        "image_count": len(images),
     }
-    return text
+    return text, images
 
 
-def _stage_draft(db, run: PipelineRun, art: PipelineStageArtifact, material_text: str):
+def _localize_images(db, run: PipelineRun, images: list, referer: str = "") -> list:
+    """可选：把原文外链图片下载到本地素材库（PIPELINE_DOWNLOAD_IMAGES 开启时）。"""
+    if not images:
+        return []
+    if not cfg_get("PIPELINE_DOWNLOAD_IMAGES", False):
+        return [dict(i) for i in images]
+    import os
+    import uuid
+    import requests
+    from storage import get_storage
+    from models import MediaAsset
+    out = []
+    for it in images:
+        url = (it or {}).get("url") or ""
+        if not url.startswith("http"):
+            out.append(dict(it))
+            continue
+        try:
+            resp = requests.get(url, timeout=12, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126 Safari/537.36",
+                "Referer": referer or url,
+            })
+            resp.raise_for_status()
+            ext = os.path.splitext(url.split("?")[0])[1].lower()
+            if ext not in (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"):
+                ext = ".jpg"
+            rel = get_storage().save_bytes(resp.content, f"{uuid.uuid4().hex}{ext}", "images")
+            local = get_storage().url_for(rel)
+            db.add(MediaAsset(type="image", url=local, original_name=os.path.basename(url)[:100],
+                              mime=resp.headers.get("Content-Type", ""), size=len(resp.content),
+                              created_by=run.user_id))
+            db.commit()
+            item = dict(it)
+            item["origin_url"] = url
+            item["url"] = local
+            out.append(item)
+        except Exception as e:
+            logger.warning(f"[pipeline] 图片本地化失败，保留外链 {url}: {e}")
+            out.append(dict(it))
+    return out
+
+
+_IMG_PLACEHOLDER = re.compile(r"\[\[\s*IMG\s*[::]\s*(.*?)\s*\]\]", re.I)
+
+
+def _fallback_positions(lines: list, count: int) -> list:
+    """无占位符时的插入位置：优先各 H2 标题之后，否则按 1/3、2/3 段落。"""
+    heads = [i for i, ln in enumerate(lines) if ln.strip().startswith("## ")]
+    if len(heads) >= 2:
+        return [h + 1 for h in heads[:count]]
+    if len(heads) == 1:
+        return [heads[0] + 1]
+    body = [i for i, ln in enumerate(lines) if ln.strip()]
+    if not body:
+        return []
+    picks = []
+    if count >= 1:
+        picks.append(body[len(body) // 3])
+    if count >= 2 and len(body) > 3:
+        picks.append(body[(len(body) * 2) // 3])
+    if count >= 3 and len(body) > 6:
+        picks.append(body[len(body) // 2])
+    return picks
+
+
+def _stage_images(db, run: PipelineRun, art: PipelineStageArtifact,
+                  content: str, images: list):
+    """智能配图：优先替换 AI 输出的 [[IMG: 描述]] 占位符，其次按规则兜底插入。"""
+    enabled = bool(cfg_get("PIPELINE_IMAGE_ENABLED", True))
+    max_n = max(0, int(cfg_get("PIPELINE_IMAGE_MAX", 3) or 0))
+    pool = [i for i in (images or []) if (i or {}).get("url")]
+    art.meta = {"enabled": enabled, "pool_size": len(pool), "max": max_n}
+    if not content:
+        return content
+    if not enabled or not pool or max_n == 0:
+        art.content_md = _IMG_PLACEHOLDER.sub("", content).strip()
+        art.meta["inserted"] = 0
+        return art.content_md
+    used, cursor = [], 0
+
+    def take():
+        nonlocal cursor
+        while cursor < len(pool):
+            img = pool[cursor]
+            cursor += 1
+            if img["url"] not in [u["url"] for u in used]:
+                return img
+        return None
+
+    def repl(m):
+        img = take()
+        if not img:
+            return ""
+        used.append(img)
+        alt = (img.get("alt") or m.group(1) or "配图").strip()[:60]
+        return f"![{alt}]({img['url']})"
+
+    content = _IMG_PLACEHOLDER.sub(repl, content)
+    content = _IMG_PLACEHOLDER.sub("", content)
+    if not used:
+        lines = content.split("\n")
+        for pos in sorted(_fallback_positions(lines, min(max_n, len(pool))), reverse=True):
+            img = take()
+            if not img:
+                break
+            alt = (img.get("alt") or "配图")[:60]
+            lines[pos:pos] = ["", f"![{alt}]({img['url']})", ""]
+            used.append(img)
+        content = "\n".join(lines)
+    content = re.sub(r"\n{3,}", "\n\n", content).strip()
+    art.content_md = content
+    art.meta["inserted"] = len(used)
+    art.meta["used"] = [
+        {"url": u.get("url", ""), "alt": u.get("alt", ""), "origin_url": u.get("origin_url", "")}
+        for u in used
+    ]
+    logger.info(f"[pipeline] 任务 {run.id} 智能配图完成，使用 {len(used)} 张（图片池 {len(pool)} 张）")
+    return content
+
+
+def _stage_draft(db, run: PipelineRun, art: PipelineStageArtifact, material_text: str, with_images: bool = False):
     from ai_service import generate_create, generate_rewrite
     cfg = run.config or {}
     style = cfg.get("style") or "专业深度"
@@ -155,12 +300,12 @@ def _stage_draft(db, run: PipelineRun, art: PipelineStageArtifact, material_text
             raise PipelineError("新闻不存在或已删除")
         result = generate_rewrite(
             news.title, news.summary or "", material_text or news.summary or news.title,
-            style, extra_prompt, platform, model, word_count,
+            style, extra_prompt, platform, model, word_count, with_images,
         )
     else:
         if not run.topic.strip():
             raise PipelineError("创作主题不能为空")
-        result = generate_create(run.topic, style, word_count, extra_prompt, platform, model)
+        result = generate_create(run.topic, style, word_count, extra_prompt, platform, model, with_images)
     art.title = (result.get("title") or "").strip()
     art.content_md = (result.get("content") or "").strip()
     art.meta["style"] = style
@@ -168,6 +313,20 @@ def _stage_draft(db, run: PipelineRun, art: PipelineStageArtifact, material_text
     art.meta["platform"] = platform
     if not art.content_md:
         raise PipelineError("AI 未生成正文，请重试")
+    # 长文完整性：不足目标字数 80% 时自动续写（最多 2 轮）
+    attempts = 0
+    while _char_count(art.content_md) < int(word_count * 0.8) and attempts < 2:
+        from ai_service import continue_content
+        _ai_guard(db, run)
+        extra = (continue_content(art.title or run.topic or "文章", art.content_md,
+                                  style, platform, model, word_count) or "").strip()
+        if not extra:
+            break
+        art.content_md = f"{art.content_md.rstrip()}\n\n{extra}"
+        attempts += 1
+        logger.info(f"[pipeline] 任务 {run.id} 触发续写第 {attempts} 轮，当前字数 {_char_count(art.content_md)}")
+    if _char_count(art.content_md) < int(word_count * 0.6):
+        logger.warning(f"[pipeline] 任务 {run.id} 生成内容偏短：{_char_count(art.content_md)} 字（目标 {word_count}）")
     return art.content_md
 
 
@@ -176,10 +335,20 @@ def _stage_risk(db, run: PipelineRun, art: PipelineStageArtifact, title: str, co
     if not cfg_get("RISK_CHECK_ENABLED", True):
         art.meta = {"enabled": False, "level": "skipped", "issues": [], "suggestions": []}
         return {"enabled": False, "level": "skipped", "issues": [], "suggestions": []}
-    result = risk_check_content(
-        title, content, (run.config or {}).get("platform") or "",
-        cfg_get("RISK_CHECK_EXTRA", ""),
-    )
+    try:
+        result = risk_check_content(
+            title, content, (run.config or {}).get("platform") or "",
+            cfg_get("RISK_CHECK_EXTRA", ""),
+        )
+    except Exception as e:
+        # 风控检查失败不阻断成稿：记录问题并继续入库
+        logger.warning(f"[pipeline] 任务 {run.id} 风控检查执行失败（继续流程）: {e}")
+        result = {
+            "pass": False,
+            "level": "unknown",
+            "issues": [f"风控检查未完成：{str(e)[:100]}"],
+            "suggestions": [],
+        }
     art.meta = {"enabled": True, **result}
     return result
 
@@ -196,6 +365,17 @@ def _stage_revise(db, run: PipelineRun, art: PipelineStageArtifact,
     new_title, new_content = _split_md_title(buf)
     if not new_content.strip():
         raise PipelineError("AI 修订未产出有效内容，请重试")
+    # 修订不应让篇幅显著缩水，必要时续写补回
+    if _char_count(new_content) < _char_count(content) * 0.8:
+        from ai_service import continue_content
+        _ai_guard(db, run)
+        extra = (continue_content(new_title or title, new_content, cfg.get("style") or "专业深度",
+                                  cfg.get("platform") or "", cfg.get("model") or "",
+                                  int(cfg.get("word_count") or 800)) or "").strip()
+        if extra:
+            new_content = f"{new_content.rstrip()}\n\n{extra}"
+            logger.info(f"[pipeline] 任务 {run.id} 修订后篇幅不足，已续写补回至 {_char_count(new_content)} 字")
+            art.meta["continued"] = True
     art.title = new_title or title
     art.content_md = new_content
     art.meta["fixed"] = True
@@ -247,14 +427,19 @@ def _execute_run(run_id: int):
     cfg = run.config or {}
     order = 0
     latest_title, latest_content = "", ""
+    material_images = []
     risk_result = None
+    image_mode = run.source_type == "rewrite" and bool(cfg_get("PIPELINE_IMAGE_ENABLED", True))
     cancelled = False
     try:
         # 阶段规划：material(rewrite) -> draft -> risk -> [revise] -> finalize
         plan = []
         if run.source_type == "rewrite":
             plan.append("material")
-        plan += ["draft", "risk"]
+        plan.append("draft")
+        if image_mode:
+            plan.append("images")
+        plan += ["risk"]
         if cfg.get("auto_fix", True):
             plan.append("revise")
         plan.append("finalize")
@@ -267,6 +452,8 @@ def _execute_run(run_id: int):
             run.current_stage = stage
             db.commit()
             publish_event(run_id, "stage_start", {"stage": stage, "label": STAGE_LABELS.get(stage, stage)})
+            stage_start = time.time()
+            logger.info(f"[pipeline] 任务 {run_id} 开始阶段 {stage}（{STAGE_LABELS.get(stage, stage)}）")
             art = PipelineStageArtifact(run_id=run.id, stage=stage, order_no=order, status="running")
             db.add(art)
             db.commit()
@@ -274,12 +461,14 @@ def _execute_run(run_id: int):
             order += 1
             try:
                 if stage == "material":
-                    latest_content = _stage_material(db, run, art)
+                    latest_content, material_images = _stage_material(db, run, art)
                     latest_title = art.title
                 elif stage == "draft":
                     _ai_guard(db, run)
-                    latest_content = _stage_draft(db, run, art, latest_content)
+                    latest_content = _stage_draft(db, run, art, latest_content, with_images=image_mode)
                     latest_title = art.title
+                elif stage == "images":
+                    latest_content = _stage_images(db, run, art, latest_content, material_images)
                 elif stage == "risk":
                     _ai_guard(db, run)
                     risk_result = _stage_risk(db, run, art, latest_title, latest_content)
@@ -304,6 +493,16 @@ def _execute_run(run_id: int):
                         publish_event(run_id, "stage_skip", {"stage": stage, "label": STAGE_LABELS.get(stage, stage)})
                         continue
                 elif stage == "finalize":
+                    target = int(cfg.get("word_count") or 0)
+                    if target and _char_count(latest_content) < int(target * 0.6):
+                        from ai_service import continue_content
+                        _ai_guard(db, run)
+                        extra = (continue_content(latest_title or run.topic or "文章", latest_content,
+                                                  cfg.get("style") or "专业深度", cfg.get("platform") or "",
+                                                  cfg.get("model") or "", target) or "").strip()
+                        if extra:
+                            latest_content = f"{latest_content.rstrip()}\n\n{extra}"
+                            logger.info(f"[pipeline] 任务 {run.id} 定稿前补写，当前 {_char_count(latest_content)} 字（目标 {target}）")
                     article = _stage_finalize(db, run, latest_title, latest_content)
                     art.title = article.title
                     art.content_md = article.content_md
@@ -320,6 +519,10 @@ def _execute_run(run_id: int):
                 "label": STAGE_LABELS.get(stage, stage),
                 "word_count": len((art.content_md or "").replace("\n", "").replace(" ", "")),
             })
+            logger.info(
+                f"[pipeline] 任务 {run_id} 阶段 {stage} 完成，用时 {time.time() - stage_start:.1f}s，"
+                f"字数 {len((art.content_md or '').replace(chr(10), '').replace(' ', ''))}"
+            )
 
         if cancelled:
             run.status = "cancelled"
@@ -330,6 +533,7 @@ def _execute_run(run_id: int):
             run.current_stage = ""
             run.finished_at = datetime.utcnow()
         db.commit()
+        logger.info(f"[pipeline] 任务 {run_id} 结束，状态={run.status}，AI 调用 {run.ai_calls or 0} 次，文章ID={run.article_id}")
         publish_event(run_id, "run_status", {
             "status": run.status, "article_id": run.article_id,
             "error": run.error or "",

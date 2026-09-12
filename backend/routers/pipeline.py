@@ -13,7 +13,7 @@ from database import SessionLocal, get_db
 from deps import get_token_payload, require_editor
 from models import News, PipelineRun, PipelineStageArtifact
 from pipeline_service import (
-    ensure_worker_started, events_after, publish_event, run_dict,
+    ensure_worker_started, events_after, planned_stages, publish_event, run_dict,
 )
 from schemas import PipelineRunCreate
 
@@ -37,7 +37,28 @@ def _load_with_news(db: Session, runs: list) -> list:
     if news_ids:
         for n in db.query(News).filter(News.id.in_(news_ids)).all():
             titles[n.id] = n.title
-    return [run_dict(r, news_title=titles.get(r.news_id, "")) for r in runs]
+    # 阶段进度（列表展示用）
+    progress = {}
+    run_ids = [r.id for r in runs]
+    if run_ids:
+        for rid, st in db.query(PipelineStageArtifact.run_id, PipelineStageArtifact.status) \
+                .filter(PipelineStageArtifact.run_id.in_(run_ids)).all():
+            agg = progress.setdefault(rid, {"done": 0, "total": 0})
+            agg["total"] += 1
+            if st in ("done", "skipped"):
+                agg["done"] += 1
+    out = []
+    for r in runs:
+        item = run_dict(r, news_title=titles.get(r.news_id, ""))
+        planned = max(len(planned_stages(r)), progress.get(r.id, {}).get("total", 0))
+        done = progress.get(r.id, {}).get("done", 0)
+        percent = 100 if r.status == "completed" else (round(done / planned * 100) if planned else 0)
+        item["progress"] = {
+            "done": done, "total": planned,
+            "percent": min(100, max(0, percent)),
+        }
+        out.append(item)
+    return out
 
 
 @router.post("/runs")
@@ -204,3 +225,48 @@ def retry_run(run_id: int, user: dict = Depends(require_editor), db: Session = D
     ensure_worker_started()
     publish_event(run_id, "run_status", {"status": "queued", "stage": "", "retry": True})
     return {"message": "任务已重新排队"}
+
+
+@router.delete("/runs/{run_id}")
+def delete_run(run_id: int, user: dict = Depends(require_editor), db: Session = Depends(get_db)):
+    """删除成稿任务（含阶段产物；已生成的文章仍保留在文章库）。"""
+    run = _get_run_or_404(db, run_id, user)
+    if run.status in ("queued", "running"):
+        raise HTTPException(status_code=400, detail="任务正在执行中，请先取消后再删除")
+    try:
+        db.query(PipelineStageArtifact).filter(
+            PipelineStageArtifact.run_id == run_id
+        ).delete(synchronize_session=False)
+        db.delete(run)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"删除失败：{str(e)[:200]}")
+    return {"message": "成稿任务已删除"}
+
+
+@router.post("/runs/{run_id}/regenerate")
+def regenerate_run(run_id: int, user: dict = Depends(require_editor), db: Session = Depends(get_db)):
+    """重新生成：按原任务配置复制一个新任务并立即执行（保留原任务记录）。"""
+    old = _get_run_or_404(db, run_id, user)
+    if old.status in ("queued", "running"):
+        raise HTTPException(status_code=400, detail="任务正在执行中，请等待完成或先取消")
+    new_run = PipelineRun(
+        user_id=user.get("user_id"),
+        source_type=old.source_type,
+        news_id=old.news_id,
+        topic=old.topic or "",
+        mode=old.mode or "auto",
+        config=dict(old.config or {}),
+        status="queued",
+    )
+    db.add(new_run)
+    db.commit()
+    db.refresh(new_run)
+    news_title = ""
+    if new_run.news_id:
+        news = db.query(News).filter(News.id == new_run.news_id).first()
+        news_title = news.title if news else ""
+    ensure_worker_started()
+    publish_event(new_run.id, "run_status", {"status": "queued", "stage": "", "regenerated_from": old.id})
+    return run_dict(new_run, news_title=news_title)

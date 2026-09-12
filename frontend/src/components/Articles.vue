@@ -12,6 +12,7 @@
             <span class="badge" :class="a.source_type === 'rewrite' ? 'badge-blue' : 'badge-purple'">
               {{ a.source_type === 'rewrite' ? 'AI 改写' : 'AI 创作' }}
             </span>
+            <span class="article-words">📄 {{ countWords(a.content_md) }} 字</span>
             <span class="article-time">{{ formatTime(a.created_at) }}</span>
           </div>
           <h3 class="article-title" @click="open(a)">{{ a.title }}</h3>
@@ -91,6 +92,7 @@ const pubPlatforms = ref([])
 const pubError = ref('')
 
 const formatTime = (v) => v ? new Date(v).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''
+const countWords = (md) => (md || '').replace(/[\s#*>`\-\[\]()!]/g, '').length
 const plainText = (md) => (md || '').replace(/[#>*`\-\[\]()]/g, '').replace(/\n+/g, ' ')
 
 async function load(p = 1) {
@@ -161,7 +163,8 @@ onMounted(async () => {
 .article-list { display: flex; flex-direction: column; gap: 12px; }
 .article-item { padding: 16px 18px; }
 .article-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-.article-time { font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono); }
+.article-words { font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono); }
+.article-time { margin-left: auto; font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono); }
 .article-title { font-size: 1.02rem; cursor: pointer; margin-bottom: 4px; }
 .article-title:hover { color: var(--accent-blue); }
 .article-preview { font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 10px; }

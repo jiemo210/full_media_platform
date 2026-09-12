@@ -166,6 +166,8 @@ export const pipelineAPI = {
   get: (id, content = 0) => request(`/pipeline/runs/${id}?content=${content}`),
   cancel: (id) => request(`/pipeline/runs/${id}/cancel`, { method: 'POST' }),
   retry: (id) => request(`/pipeline/runs/${id}/retry`, { method: 'POST' }),
+  regenerate: (id) => request(`/pipeline/runs/${id}/regenerate`, { method: 'POST' }),
+  remove: (id) => request(`/pipeline/runs/${id}`, { method: 'DELETE' }),
 }
 export function pipelineEvents(id, onEvent, onError) {
   return _getStream(`/pipeline/runs/${id}/events`, (ev) => onEvent?.(ev), onError)

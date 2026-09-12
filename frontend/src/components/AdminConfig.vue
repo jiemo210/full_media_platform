@@ -38,6 +38,15 @@
       <label class="field">风控检查补充要求（会追加到风控提示词，如“需标注 AI 生成内容”）
         <textarea v-model="config.RISK_CHECK_EXTRA" rows="2" placeholder="如：需标注 AI 生成内容；涉未成年人内容需谨慎" />
       </label>
+      <label class="field">一键成稿智能配图
+        <input type="checkbox" v-model="config.PIPELINE_IMAGE_ENABLED" class="check" />
+      </label>
+      <label class="field">单篇最多配图数量
+        <input v-model.number="config.PIPELINE_IMAGE_MAX" type="number" min="0" max="6" />
+      </label>
+      <label class="field">配图本地化（下载原文图片到素材库，规避防盗链）
+        <input type="checkbox" v-model="config.PIPELINE_DOWNLOAD_IMAGES" class="check" />
+      </label>
       <button class="btn primary" @click="save" :disabled="saving">{{ saving ? '保存中...' : '💾 保存配置' }}</button>
     </div>
     <p v-if="msg" class="msg" :class="{ err: msg.startsWith('❌') }">{{ msg }}</p>
@@ -72,7 +81,7 @@ onMounted(load)
 
 <style scoped>
 .desc { font-size: 0.82rem; color: var(--text-muted); margin-bottom: 1rem; }
-.config-card { padding: 1.3rem; max-width: 520px; display: flex; flex-direction: column; gap: 14px; }
+.config-card { padding: 1.5rem 1.7rem; max-width: 760px; display: flex; flex-direction: column; gap: 14px; }
 .field { display: flex; flex-direction: column; gap: 6px; font-size: 0.8rem; color: var(--text-secondary); }
 .check { width: 20px; height: 20px; accent-color: var(--accent-blue); }
 </style>

@@ -81,6 +81,9 @@ input, select, textarea {
 }
 input:focus, select:focus, textarea:focus { border-color: var(--accent-blue); }
 input::placeholder, textarea::placeholder { color: var(--text-muted); }
+/* 弹窗内表单控件撑满可用宽度，避免弹窗放大后控件仍很窄 */
+.modal .field input, .modal .field select, .modal .field textarea,
+.preview-panel .field input, .preview-panel .field select, .preview-panel .field textarea { width: 100%; }
 
 /* 下拉框选项：默认系统白底，必须用深色文字，否则看不清 */
 select option {

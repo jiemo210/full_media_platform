@@ -2,7 +2,7 @@
   <div class="preview-overlay" @click.self="$emit('close')">
     <div class="preview-panel">
       <div class="preview-header">
-        <span class="section-label">AI REWRITE</span>
+        <span class="section-label">{{ action === 'pipeline' ? 'ONE-CLICK DRAFT' : 'AI REWRITE' }}</span>
         <button class="close-btn" @click="$emit('close')">×</button>
       </div>
       <div class="preview-body">
@@ -46,7 +46,7 @@
           </label>
           <div class="suggestions-box">
             <button class="btn" @click="loadSuggestions" :disabled="suggestionLoading">
-              {{ suggestionLoading ? 'AI 生成建议中...' : '💡 生成 AI 改写建议' }}
+              {{ suggestionLoading ? 'AI 生成建议中...' : '💡 生成 AI 写作建议' }}
             </button>
             <p v-if="suggestionError" class="msg err">{{ suggestionError }}</p>
             <label v-for="s in suggestions" :key="s" class="suggestion-item" :class="{ on: appliedSuggestions.includes(s) }">

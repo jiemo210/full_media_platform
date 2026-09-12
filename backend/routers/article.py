@@ -81,7 +81,8 @@ async def risk_revise(req: RiskReviseRequest, user: dict = Depends(require_edito
         req.title, req.content, req.platform,
         req.issues or [], req.suggestions or [], req.model or "",
     )
-    return _sse(gen)
+    return _sse(gen, target_words=max(300, int(_char_count(req.content) * 0.9)),
+                title=req.title, style="", platform=req.platform, model=req.model)
 
 
 def _to_base(a: Article) -> ArticleBase:
@@ -92,7 +93,12 @@ def _to_base(a: Article) -> ArticleBase:
     )
 
 
-def _sse(gen):
+def _char_count(text: str) -> int:
+    return len((text or "").replace("\n", "").replace(" ", "").replace("\t", ""))
+
+
+def _sse(gen, target_words: int = 0, title: str = "", style: str = "",
+         platform: str = "", model: str = ""):
     def event_stream():
         buf = ""
         try:
@@ -103,6 +109,22 @@ def _sse(gen):
             logger.warning(f"[ai] 生成中断: {e}")
             yield f"data: {json.dumps({'type': 'error', 'message': f'生成中断：{e}'}, ensure_ascii=False)}\n\n"
             return
+        # 长文完整性：未达目标 80% 时自动续写（最多 2 轮）
+        tries = 0
+        while target_words and _char_count(buf) < int(target_words * 0.8) and tries < 2:
+            try:
+                from ai_service import continue_content
+                extra = (continue_content(title or "文章", buf, style, platform, model, target_words) or "").strip()
+            except Exception as e:
+                logger.warning(f"[ai] 续写失败: {e}")
+                break
+            if not extra:
+                break
+            piece = "\n\n" + extra
+            buf += piece
+            tries += 1
+            logger.info(f"[ai] 触发续写第 {tries} 轮，当前字数 {_char_count(buf)}（目标 {target_words}）")
+            yield f"data: {json.dumps({'type': 'token', 'content': piece}, ensure_ascii=False)}\n\n"
         yield f"data: {json.dumps({'type': 'done', 'content': buf}, ensure_ascii=False)}\n\n"
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -117,7 +139,8 @@ async def rewrite_stream(news_id: int, req: RewriteRequest, request: Request, us
     fetched = fetch_article(news.url, news.summary)
     original = fetched.get("text") or news.summary
     gen = generate_rewrite_stream(news.title, news.summary, original, req.style, req.extra_prompt, req.platform, req.model, req.word_count)
-    return _sse(gen)
+    return _sse(gen, target_words=req.word_count, title=news.title,
+                style=req.style, platform=req.platform, model=req.model)
 
 
 @router.post("/create/stream")
@@ -125,7 +148,8 @@ async def create_stream(req: CreateRequest, user: dict = Depends(require_editor)
     """自定义主题 AI 创作（SSE 流式）。"""
     _check_ai_rate(user)
     gen = generate_create_stream(req.topic, req.style, req.word_count, req.extra_prompt, req.platform, req.model)
-    return _sse(gen)
+    return _sse(gen, target_words=req.word_count, title=req.topic,
+                style=req.style, platform=req.platform, model=req.model)
 
 
 @router.post("/rewrite", response_model=ArticleBase)

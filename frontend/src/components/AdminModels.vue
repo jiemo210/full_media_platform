@@ -98,7 +98,7 @@ onMounted(load)
 .btn.del { border-color: rgba(255, 69, 58, 0.4); color: #FF9B94; padding: 5px 12px; }
 .empty-cell { text-align: center; color: var(--text-muted); padding: 2rem; }
 .overlay { position: fixed; inset: 0; z-index: 1200; background: rgba(5, 8, 18, 0.65); display: flex; align-items: center; justify-content: center; }
-.modal { width: 460px; max-width: 92vw; padding: 1.3rem; }
+.modal { width: min(680px, 94vw); max-height: 88vh; overflow-y: auto; padding: 1.6rem 1.8rem; }
 .modal h3 { margin-bottom: 0.8rem; }
 .field { display: flex; flex-direction: column; gap: 6px; font-size: 0.78rem; color: var(--text-muted); margin-bottom: 10px; }
 .check-row { display: flex; gap: 20px; font-size: 0.82rem; margin-bottom: 8px; }

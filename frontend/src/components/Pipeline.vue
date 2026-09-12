@@ -16,7 +16,6 @@
             <option value="failed">失败</option>
             <option value="cancelled">已取消</option>
           </select>
-          <button class="btn" @click="load">🔄 刷新</button>
           <button class="btn primary" @click="openCreate">⚡ 新建成稿任务</button>
         </div>
       </div>
@@ -29,19 +28,28 @@
               <span class="badge" :class="r.source_type === 'rewrite' ? 'badge-blue' : 'badge-purple'">
                 {{ r.source_type === 'rewrite' ? '热点改写' : '自由创作' }}
               </span>
-              <span class="run-title" :title="r.display_title || r.topic || ''">{{ displayTitle(r) }}</span>
+              <span class="run-title">{{ displayTitle(r) }}</span>
               <span class="status" :class="r.status">{{ statusText(r.status) }}</span>
               <button class="run-chev" title="展开/收起" @click.stop="toggleRun(r)">{{ expandedRunId === r.id ? '▴' : '▾' }}</button>
             </div>
             <div class="run-meta">
               <span v-if="r.current_stage_label && r.status === 'running'">⏳ {{ r.current_stage_label }}</span>
+              <span v-if="r.config?.style">🎨 {{ r.config.style }}</span>
+              <span v-if="r.config?.model">🤖 {{ modelLabel(r.config.model) }}</span>
+              <span v-if="r.config?.platform">📤 {{ r.config.platform }}</span>
               <span>AI 调用 {{ r.ai_calls }} 次</span>
               <span>{{ formatTime(r.created_at) }}</span>
+            </div>
+            <div class="run-progress">
+              <div class="rp-bar"><div class="rp-fill" :class="r.status" :style="{ width: progressPct(r) + '%' }"></div></div>
+              <span class="rp-text">{{ progressPct(r) }}%<template v-if="r.progress"> · {{ r.progress.done }}/{{ r.progress.total }} 阶段</template></span>
             </div>
             <p v-if="r.error" class="err-text">❌ {{ r.error }}</p>
             <div class="run-actions">
               <button v-if="r.status === 'failed' || r.status === 'cancelled'" class="btn small accent" @click.stop="retry(r)">🔁 重试</button>
-              <button v-if="r.status === 'queued' || r.status === 'running'" class="btn small del" @click.stop="cancel(r)">✖ 取消</button>
+              <button v-if="r.status !== 'queued' && r.status !== 'running'" class="btn small" @click.stop="regenerate(r)">🔄 重新生成</button>
+              <button v-if="r.status === 'queued' || r.status === 'running'" class="btn small del" @click.stop="askAction('cancel', r)">✖ 取消</button>
+              <button v-if="r.status !== 'queued' && r.status !== 'running'" class="btn small del" @click.stop="askAction('delete', r)">🗑 删除</button>
             </div>
           </div>
 
@@ -145,6 +153,24 @@
         </div>
       </div>
     </div>
+
+    <!-- 统一确认弹窗 -->
+    <div v-if="pendingAction" class="overlay" @click.self="pendingAction = null">
+      <div class="modal confirm-modal card">
+        <h3>{{ pendingAction.type === 'delete' ? '删除确认' : '取消确认' }}</h3>
+        <p class="confirm-text">
+          {{ pendingAction.type === 'delete'
+            ? '确认删除该成稿任务？（已生成的文章仍保留在文章库）'
+            : '确认取消任务 #' + pendingAction.run.id + '？已完成阶段会保留' }}
+        </p>
+        <div class="modal-actions">
+          <button class="btn" @click="pendingAction = null">取消</button>
+          <button class="btn" :class="pendingAction.type === 'delete' ? 'del' : 'accent'" :disabled="acting" @click="runAction">
+            {{ acting ? '处理中...' : (pendingAction.type === 'delete' ? '删除' : '确认取消') }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -167,6 +193,8 @@ const platforms = ref([])
 const showCreate = ref(false)
 const creating = ref(false)
 const createError = ref('')
+const pendingAction = ref(null)
+const acting = ref(false)
 const form = ref({ topic: '', style: '专业深度', word_count: 800, platform: '', model: '', extra_prompt: '', auto_fix: true })
 const eventController = ref(null)
 const expandedStageId = ref(null)
@@ -183,7 +211,29 @@ const displayTitle = (r) => {
   const s = r.display_title || r.topic || `任务 #${r.id}`
   return s.length > 50 ? `${s.slice(0, 50)}…` : s
 }
+const modelLabel = (key) => models.value.find(m => m.key === key)?.name || key
+const progressPct = (r) => {
+  if (r.progress && typeof r.progress.percent === 'number') return r.progress.percent
+  return r.status === 'completed' ? 100 : 0
+}
 const canCreate = computed(() => !!form.value.topic.trim())
+let pollTimer = null
+
+function syncPolling() {
+  const active = runs.value.some(r => ['queued', 'running'].includes(r.status))
+  if (active && !pollTimer) {
+    pollTimer = setInterval(async () => {
+      await load()
+      const cur = runs.value.find(x => x.id === expandedRunId.value)
+      if (cur && cur._detail) {
+        try { cur._detail = await pipelineAPI.get(cur.id, 1) } catch (e) {}
+      }
+    }, 3000)
+  } else if (!active && pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
 const selectedPlatform = computed(() => platforms.value.find(p => p.label === form.value.platform) || null)
 
 async function load() {
@@ -192,6 +242,7 @@ async function load() {
     runs.value = res.items
     total.value = res.total
     loaded.value = true
+    syncPolling()
   } catch (e) { msg.value = `❌ ${e.message}` }
 }
 
@@ -287,9 +338,47 @@ async function retry(r) {
   try { await pipelineAPI.retry(r.id); toast(`🔁 任务 #${r.id} 已重新排队`, 'success'); load() } catch (e) { msg.value = `❌ ${e.message}` }
 }
 
+async function regenerate(r) {
+  try {
+    const run = await pipelineAPI.regenerate(r.id)
+    toast(`🔄 已按原配置创建新任务 #${run.id}`, 'success', { label: '查看任务', to: '/pipeline' })
+    await load()
+    const found = runs.value.find(x => x.id === run.id)
+    if (found) openRun(found)
+  } catch (e) {
+    msg.value = `❌ ${e.message}`
+    toast(`❌ ${e.message || '重新生成失败'}`, 'error')
+  }
+}
+
 async function cancel(r) {
-  if (!confirm(`确认取消任务 #${r.id}？`)) return
   try { await pipelineAPI.cancel(r.id); toast('已取消', 'info'); load() } catch (e) { msg.value = `❌ ${e.message}` }
+}
+
+function askAction(type, r) {
+  pendingAction.value = { type, run: r }
+}
+
+async function runAction() {
+  const act = pendingAction.value
+  if (!act || acting.value) return
+  acting.value = true
+  try {
+    if (act.type === 'delete') {
+      await pipelineAPI.remove(act.run.id)
+      if (expandedRunId.value === act.run.id) expandedRunId.value = null
+      toast('🗑 成稿任务已删除（文章仍在文章库）', 'success')
+    } else {
+      await cancel(act.run)
+    }
+    pendingAction.value = null
+    load()
+  } catch (e) {
+    msg.value = `❌ ${e.message}`
+    toast(`❌ ${e.message || '操作失败'}`, 'error')
+  } finally {
+    acting.value = false
+  }
 }
 
 onMounted(async () => {
@@ -303,7 +392,10 @@ onMounted(async () => {
   await load()
 })
 
-onUnmounted(() => { try { eventController.value?.abort() } catch (e) {} })
+onUnmounted(() => {
+  try { eventController.value?.abort() } catch (e) {}
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+})
 </script>
 
 <style scoped>
@@ -311,8 +403,8 @@ onUnmounted(() => { try { eventController.value?.abort() } catch (e) {} })
 .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 10px; }
 .head-actions { display: flex; gap: 8px; align-items: center; }
 .run-list { display: flex; flex-direction: column; gap: 10px; }
-.run-card { padding: 0; }
-.run-main { padding: 12px 16px; cursor: pointer; }
+.run-card { padding: 0; position: relative; }
+.run-main { padding: 12px 16px; cursor: pointer; position: relative; }
 .run-card.active { border-color: var(--accent-blue); }
 .run-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .run-title { font-weight: 600; font-size: 0.92rem; flex: 1; }
@@ -327,6 +419,14 @@ onUnmounted(() => { try { eventController.value?.abort() } catch (e) {} })
 .status.failed { background: rgba(255, 69, 58, 0.15); color: #FF9B94; }
 .status.cancelled { background: rgba(255, 159, 10, 0.12); color: var(--text-muted); }
 .run-meta { display: flex; gap: 14px; font-size: 0.74rem; color: var(--text-muted); margin-top: 4px; }
+.run-meta { flex-wrap: wrap; }
+.run-progress { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.rp-bar { flex: 1; height: 6px; border-radius: 999px; background: var(--glass-bg); overflow: hidden; }
+.rp-fill { height: 100%; width: 0; border-radius: 999px; background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple)); transition: width 0.4s ease; }
+.rp-fill.completed { background: linear-gradient(90deg, var(--accent-green), var(--accent-blue)); }
+.rp-fill.failed { background: linear-gradient(90deg, #FF453A, #FF9B94); }
+.rp-fill.cancelled { background: var(--text-muted); }
+.rp-text { font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; }
 .err-text { color: #FF9B94; font-size: 0.78rem; margin-top: 4px; }
 .run-actions { display: flex; gap: 8px; margin-top: 8px; }
 .btn.small { padding: 4px 10px; font-size: 0.76rem; }
@@ -374,6 +474,9 @@ onUnmounted(() => { try { eventController.value?.abort() } catch (e) {} })
 .check-row input { accent-color: var(--accent-blue); }
 .mode-tip { font-size: 0.74rem; color: var(--text-muted); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.confirm-modal { width: 420px; max-width: 94vw; }
+.confirm-text { margin: 0.4rem 0 0.2rem; color: var(--text-secondary); font-size: 0.88rem; line-height: 1.6; }
+.btn.del { border-color: rgba(255, 69, 58, 0.45); color: #FF9B94; }
 .empty-tip { text-align: center; color: var(--text-muted); padding: 2rem; }
 .preview-overlay { position: fixed; inset: 0; z-index: 1100; background: rgba(5, 8, 18, 0.68); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; padding: 1rem; }
 .preview-panel { width: 860px; max-width: 96vw; max-height: 92vh; overflow-y: auto; background: var(--glass-deep); border: 1px solid var(--glass-border); border-radius: 24px; box-shadow: var(--shadow-lg); padding: 1.3rem 1.5rem; }

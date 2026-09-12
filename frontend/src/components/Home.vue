@@ -34,7 +34,7 @@
 
       <div class="home-layout">
         <div class="news-list">
-          <div v-for="n in newsList" :key="n.id" class="news-card card" @click="selectedNews = n">
+          <div v-for="n in newsList" :key="n.id" class="news-card card" @click="openPipelineModal(n)">
             <div class="news-main">
               <div class="news-top">
                 <span class="badge badge-blue">{{ n.source_name }}</span>
@@ -45,10 +45,7 @@
               <p class="news-summary">{{ n.summary }}</p>
               <div class="news-footer">
                 <span class="news-time">🕐 首次抓取 {{ formatTime(n.created_at) }}</span>
-                <div class="news-actions">
-                  <button class="mini-btn" @click.stop="openRewrite(n)">✍️ AI 改写</button>
-                  <button class="mini-btn mini-primary" @click.stop="openPipelineModal(n)">⚡ 一键成稿</button>
-                </div>
+                <button class="mini-btn mini-primary news-pipeline-btn" @click.stop="openPipelineModal(n)">⚡ 一键成稿</button>
               </div>
             </div>
           </div>
@@ -57,7 +54,7 @@
 
         <aside class="top-panel card">
           <h3 class="top-title">热门排行 TOP10</h3>
-          <div v-for="(n, i) in topNews" :key="n.id" class="top-item" @click="selectedNews = n">
+          <div v-for="(n, i) in topNews" :key="n.id" class="top-item" @click="openPipelineModal(n)">
             <span class="top-rank" :class="{ top3: i < 3 }">{{ String(i + 1).padStart(2, '0') }}</span>
             <span class="top-text">{{ n.title }}</span>
           </div>
@@ -99,12 +96,7 @@ const crawling = ref(false)
 const crawlMsg = ref('')
 const crawlErr = ref(false)
 const selectedNews = ref(null)
-const selectedAction = ref('rewrite')
-
-function openRewrite(n) {
-  selectedAction.value = 'rewrite'
-  selectedNews.value = n
-}
+const selectedAction = ref('pipeline')
 
 function openPipelineModal(n) {
   selectedAction.value = 'pipeline'
@@ -194,6 +186,8 @@ onMounted(async () => {
 .news-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
 .news-time { font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono); }
 .news-actions { display: flex; gap: 8px; }
+.news-footer { align-items: center; }
+.news-pipeline-btn { margin-left: auto; }
 .mini-btn { padding: 4px 12px; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--glass-bg); color: var(--text-secondary); font-size: 0.74rem; cursor: pointer; white-space: nowrap; }
 .mini-btn:hover { color: var(--text-primary); border-color: var(--text-muted); }
 .mini-btn.mini-primary { border-color: rgba(100, 210, 255, 0.45); color: var(--accent-blue); background: rgba(100, 210, 255, 0.1); }
